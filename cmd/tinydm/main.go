@@ -1,0 +1,134 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+
+	"tinydm/internal/config"
+	"tinydm/internal/db"
+	"tinydm/internal/storage"
+)
+
+const version = "0.1.0"
+
+func main() {
+	// ── Logger ────────────────────────────────────────────────────────────────
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
+	slog.SetDefault(logger)
+
+	slog.Info("starting TinyDM", "version", version)
+
+	// ── Config ────────────────────────────────────────────────────────────────
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("configuration error", "error", err)
+		os.Exit(1)
+	}
+
+	// ── Database ──────────────────────────────────────────────────────────────
+	database, err := db.Open(cfg.DBPath)
+	if err != nil {
+		slog.Error("failed to open database", "error", err, "path", cfg.DBPath)
+		os.Exit(1)
+	}
+	defer database.Close()
+
+	if err := db.Migrate(database); err != nil {
+		slog.Error("failed to run migrations", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("database ready", "path", cfg.DBPath)
+
+	// ── Storage ───────────────────────────────────────────────────────────────
+	store, err := storage.NewLocal(cfg.StoragePath)
+	if err != nil {
+		slog.Error("failed to initialise storage", "error", err, "path", cfg.StoragePath)
+		os.Exit(1)
+	}
+	slog.Info("storage ready", "path", cfg.StoragePath)
+
+	// ── Router ────────────────────────────────────────────────────────────────
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.RealIP)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.Timeout(60 * time.Second))
+
+	// Health / readiness
+	r.Get("/health", handleHealth(database))
+
+	// API v1 — handlers will be wired in Phase 3
+	r.Route("/api/v1", func(r chi.Router) {
+		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"service":"tinydm","version":%q}`, version)
+		})
+	})
+
+	// Suppress "declared and not used" until store is wired into handlers.
+	_ = store
+
+	// ── HTTP server ───────────────────────────────────────────────────────────
+	srv := &http.Server{
+		Addr:         cfg.Addr(),
+		Handler:      r,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	// Start in background.
+	go func() {
+		slog.Info("server listening", "addr", cfg.Addr())
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("server error", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// ── Graceful shutdown ─────────────────────────────────────────────────────
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	slog.Info("shutdown signal received")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		slog.Error("server shutdown error", "error", err)
+	}
+	slog.Info("server stopped")
+}
+
+// handleHealth returns a liveness/readiness handler that pings the database.
+func handleHealth(database interface{ PingContext(context.Context) error }) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+
+		status := "ok"
+		code := http.StatusOK
+		if err := database.PingContext(ctx); err != nil {
+			slog.Error("health check: db ping failed", "error", err)
+			status = "degraded"
+			code = http.StatusServiceUnavailable
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(code)
+		fmt.Fprintf(w, `{"status":%q,"version":%q}`, status, version)
+	}
+}

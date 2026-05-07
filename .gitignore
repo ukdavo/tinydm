@@ -1,0 +1,23 @@
+# Compiled binaries
+bin/
+*.exe
+
+# Local databases and data
+*.db
+*.db-shm
+*.db-wal
+data/
+
+# Environment / secrets
+.env
+.env.*
+
+# Editor artefacts
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Go test cache
+/vendor/

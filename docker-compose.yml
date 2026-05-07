@@ -1,0 +1,13 @@
+services:
+  tinydm:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - tinydm-data:/data
+    environment:
+      TINYDM_JWT_SECRET: "change-me-before-production"
+    restart: unless-stopped
+
+volumes:
+  tinydm-data:
