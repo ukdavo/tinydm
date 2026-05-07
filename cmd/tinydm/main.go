@@ -17,6 +17,7 @@ import (
 	"tinydm/internal/auth"
 	"tinydm/internal/config"
 	"tinydm/internal/db"
+	"tinydm/internal/repo"
 	"tinydm/internal/storage"
 )
 
@@ -52,16 +53,16 @@ func main() {
 	slog.Info("database ready", "path", cfg.DBPath)
 
 	// ── Storage ───────────────────────────────────────────────────────────────
-	store, err := storage.NewLocal(cfg.StoragePath)
+	fileStore, err := storage.NewLocal(cfg.StoragePath)
 	if err != nil {
 		slog.Error("failed to initialise storage", "error", err, "path", cfg.StoragePath)
 		os.Exit(1)
 	}
 	slog.Info("storage ready", "path", cfg.StoragePath)
-	_ = store // will be used in Phase 3
 
-	// ── Auth store ────────────────────────────────────────────────────────────
+	// ── Stores ────────────────────────────────────────────────────────────────
 	authStore := auth.NewStore(database)
+	repoStore := repo.NewStore(database)
 
 	// Bootstrap: seed the first admin if the DB is empty and a password is set.
 	if cfg.BootstrapAdminPass != "" {
@@ -82,13 +83,8 @@ func main() {
 		)
 	}
 
-	// ── Handlers ──────────────────────────────────────────────────────────────
-	authHandler := api.NewAuthHandler(cfg, authStore)
-
 	// ── Router ────────────────────────────────────────────────────────────────
 	r := chi.NewRouter()
-
-	// Global middleware
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
@@ -96,20 +92,11 @@ func main() {
 	r.Use(middleware.Timeout(60 * time.Second))
 	r.Use(auth.Authenticator(cfg.JWTSecret, authStore))
 
-	// Health / readiness — no auth required
+	// Health endpoint
 	r.Get("/health", handleHealth(database))
 
-	// API v1
-	r.Route("/api/v1", func(r chi.Router) {
-		// Public auth endpoints
-		r.Post("/auth/login", authHandler.Login)
-
-		// Authenticated endpoints
-		r.Group(func(r chi.Router) {
-			r.Use(auth.RequireAuth)
-			r.Get("/auth/me", authHandler.Me)
-		})
-	})
+	// Register all API routes
+	api.RegisterRoutes(r, cfg, repoStore, authStore, fileStore)
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
 	srv := &http.Server{

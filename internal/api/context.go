@@ -1,0 +1,132 @@
+package api
+
+import (
+	"context"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+
+	"tinydm/internal/repo"
+)
+
+type ctxKey string
+
+const (
+	tenantKey   ctxKey = "tenant"
+	projectKey  ctxKey = "project"
+	bucketKey   ctxKey = "bucket"
+	documentKey ctxKey = "document"
+)
+
+// ─── Resource context middleware ──────────────────────────────────────────────
+// Each middleware resolves a URL parameter to a DB record, validates
+// parent ownership, and stores the record in the request context.
+// A 404 is returned immediately if the resource does not exist.
+
+// TenantCtx loads the tenant identified by {tenantID} into the context.
+func TenantCtx(store *repo.Store) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			id := chi.URLParam(r, "tenantID")
+			tenant, err := store.GetTenant(r.Context(), id)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error")
+				return
+			}
+			if tenant == nil {
+				writeError(w, http.StatusNotFound, "tenant not found")
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(contextWith(r.Context(), tenantKey, tenant)))
+		})
+	}
+}
+
+// ProjectCtx loads the project identified by {projectID} and verifies it
+// belongs to the tenant already in context.
+func ProjectCtx(store *repo.Store) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			tenant := tenantFromCtx(r)
+			id := chi.URLParam(r, "projectID")
+			project, err := store.GetProject(r.Context(), id)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error")
+				return
+			}
+			if project == nil || project.TenantID != tenant.ID {
+				writeError(w, http.StatusNotFound, "project not found")
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(contextWith(r.Context(), projectKey, project)))
+		})
+	}
+}
+
+// BucketCtx loads the bucket identified by {bucketID} and verifies it
+// belongs to the project already in context.
+func BucketCtx(store *repo.Store) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			project := projectFromCtx(r)
+			id := chi.URLParam(r, "bucketID")
+			bucket, err := store.GetBucket(r.Context(), id)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error")
+				return
+			}
+			if bucket == nil || bucket.ProjectID != project.ID {
+				writeError(w, http.StatusNotFound, "bucket not found")
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(contextWith(r.Context(), bucketKey, bucket)))
+		})
+	}
+}
+
+// DocumentCtx loads the document identified by {documentID} and verifies it
+// belongs to the bucket already in context.
+func DocumentCtx(store *repo.Store) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			bucket := bucketFromCtx(r)
+			id := chi.URLParam(r, "documentID")
+			doc, err := store.GetDocument(r.Context(), id)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error")
+				return
+			}
+			if doc == nil || doc.BucketID != bucket.ID {
+				writeError(w, http.StatusNotFound, "document not found")
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(contextWith(r.Context(), documentKey, doc)))
+		})
+	}
+}
+
+// ─── Context accessors ────────────────────────────────────────────────────────
+
+func tenantFromCtx(r *http.Request) *repo.Tenant {
+	t, _ := r.Context().Value(tenantKey).(*repo.Tenant)
+	return t
+}
+
+func projectFromCtx(r *http.Request) *repo.Project {
+	p, _ := r.Context().Value(projectKey).(*repo.Project)
+	return p
+}
+
+func bucketFromCtx(r *http.Request) *repo.Bucket {
+	b, _ := r.Context().Value(bucketKey).(*repo.Bucket)
+	return b
+}
+
+func documentFromCtx(r *http.Request) *repo.Document {
+	d, _ := r.Context().Value(documentKey).(*repo.Document)
+	return d
+}
+
+func contextWith(ctx context.Context, key ctxKey, val any) context.Context {
+	return context.WithValue(ctx, key, val)
+}

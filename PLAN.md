@@ -45,13 +45,13 @@ REST endpoints for the full tenant → project → bucket → document hierarchy
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 3.1 | Tenant CRUD endpoints | ⬜ | |
-| 3.2 | Project CRUD endpoints | ⬜ | |
-| 3.3 | Bucket CRUD endpoints | ⬜ | |
-| 3.4 | Document upload endpoint | ⬜ | |
-| 3.5 | Document download endpoint | ⬜ | |
-| 3.6 | Document delete endpoint | ⬜ | |
-| 3.7 | Document search endpoint | ⬜ | |
+| 3.1 | Tenant CRUD endpoints | ✅ | `internal/api/tenants.go` |
+| 3.2 | Project CRUD endpoints | ✅ | `internal/api/projects.go` |
+| 3.3 | Bucket CRUD endpoints | ✅ | `internal/api/buckets.go` |
+| 3.4 | Document upload endpoint | ✅ | multipart/form-data, MIME sniff, content-addressed storage |
+| 3.5 | Document download endpoint | ✅ | streaming with Content-Type + Content-Disposition |
+| 3.6 | Document delete endpoint | ✅ | soft delete |
+| 3.7 | Document search endpoint | ✅ | `?q=` param on list endpoint |
 | 3.8 | Content-addressed file storage (SHA-256 paths) | ✅ | `internal/storage/storage.go` — done in Phase 1 |
 | 3.9 | Storage abstraction interface (for future S3/NFS) | ✅ | `Store` interface in `internal/storage/storage.go` |
 
@@ -64,7 +64,7 @@ Automatic versioning on update, and rich metadata support.
 | # | Task | Status | Notes |
 |---|------|--------|-------|
 | 4.1 | Version model — snapshot on every update | ✅ | `document_versions` table in schema |
-| 4.2 | Version history endpoint | ⬜ | |
+| 4.2 | Version history endpoint | ✅ | `GET .../documents/{id}/versions` |
 | 4.3 | Version restore endpoint | ⬜ | |
 | 4.4 | System properties (file size, MIME type, checksum) | ⬜ | |
 | 4.5 | Tag support (add / remove / filter) | ⬜ | |
