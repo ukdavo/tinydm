@@ -28,14 +28,14 @@ Principals, user types, and rights enforcement.
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 2.1 | User model (admin / user types) | ⬜ | |
-| 2.2 | Group model | ⬜ | |
-| 2.3 | API key model (stored as hashed token) | ⬜ | |
-| 2.4 | Basic authentication middleware | ⬜ | |
-| 2.5 | API key authentication middleware | ⬜ | |
-| 2.6 | JWT session issuance & validation | ⬜ | |
-| 2.7 | RBAC — Create / Read / Update / Delete rights | ⬜ | |
-| 2.8 | Rights enforcement middleware | ⬜ | |
+| 2.1 | User model (admin / user types) | ✅ | `002_auth_schema.sql` + `auth.Store` |
+| 2.2 | Group model | ✅ | groups + group_members tables |
+| 2.3 | API key model (stored as hashed token) | ✅ | SHA-256 hash, prefix display, expiry, revocation |
+| 2.4 | Basic authentication middleware | ✅ | `auth.Authenticator` — `Authorization: Basic` + `X-Tenant-ID` |
+| 2.5 | API key authentication middleware | ✅ | `auth.Authenticator` — `X-API-Key` header |
+| 2.6 | JWT session issuance & validation | ✅ | `auth.NewJWT` / `ParseJWT`; login endpoint |
+| 2.7 | RBAC — Create / Read / Update / Delete rights | ✅ | `auth.Can()` + rights table with wildcard support |
+| 2.8 | Rights enforcement middleware | ✅ | `auth.RequireAuth`, `auth.RequireAdmin` |
 
 ---
 

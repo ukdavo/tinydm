@@ -13,6 +13,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"tinydm/internal/api"
+	"tinydm/internal/auth"
 	"tinydm/internal/config"
 	"tinydm/internal/db"
 	"tinydm/internal/storage"
@@ -26,7 +28,6 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 	slog.SetDefault(logger)
-
 	slog.Info("starting TinyDM", "version", version)
 
 	// ── Config ────────────────────────────────────────────────────────────────
@@ -57,28 +58,58 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("storage ready", "path", cfg.StoragePath)
+	_ = store // will be used in Phase 3
+
+	// ── Auth store ────────────────────────────────────────────────────────────
+	authStore := auth.NewStore(database)
+
+	// Bootstrap: seed the first admin if the DB is empty and a password is set.
+	if cfg.BootstrapAdminPass != "" {
+		if err := authStore.EnsureAdminUser(
+			context.Background(),
+			cfg.BootstrapTenantID,
+			cfg.BootstrapTenantName,
+			cfg.BootstrapAdminUser,
+			cfg.BootstrapAdminEmail,
+			cfg.BootstrapAdminPass,
+		); err != nil {
+			slog.Error("bootstrap failed", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("bootstrap complete (no-op if users already exist)",
+			"tenant", cfg.BootstrapTenantID,
+			"user", cfg.BootstrapAdminUser,
+		)
+	}
+
+	// ── Handlers ──────────────────────────────────────────────────────────────
+	authHandler := api.NewAuthHandler(cfg, authStore)
 
 	// ── Router ────────────────────────────────────────────────────────────────
 	r := chi.NewRouter()
+
+	// Global middleware
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
+	r.Use(auth.Authenticator(cfg.JWTSecret, authStore))
 
-	// Health / readiness
+	// Health / readiness — no auth required
 	r.Get("/health", handleHealth(database))
 
-	// API v1 — handlers will be wired in Phase 3
+	// API v1
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"service":"tinydm","version":%q}`, version)
+		// Public auth endpoints
+		r.Post("/auth/login", authHandler.Login)
+
+		// Authenticated endpoints
+		r.Group(func(r chi.Router) {
+			r.Use(auth.RequireAuth)
+			r.Get("/auth/me", authHandler.Me)
 		})
 	})
-
-	// Suppress "declared and not used" until store is wired into handlers.
-	_ = store
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
 	srv := &http.Server{
@@ -89,7 +120,6 @@ func main() {
 		IdleTimeout:  120 * time.Second,
 	}
 
-	// Start in background.
 	go func() {
 		slog.Info("server listening", "addr", cfg.Addr())
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {

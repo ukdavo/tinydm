@@ -1,0 +1,259 @@
+package auth
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+// User is a row from the users table.
+type User struct {
+	ID           string
+	TenantID     string
+	Username     string
+	Email        string
+	PasswordHash string
+	UserType     UserType
+	IsActive     bool
+}
+
+// APIKey is a row from the api_keys table.
+type APIKey struct {
+	ID        string
+	TenantID  string
+	UserID    sql.NullString
+	Name      string
+	KeyHash   string
+	KeyPrefix string
+	ExpiresAt sql.NullTime
+	RevokedAt sql.NullTime
+}
+
+// Right is a row from the rights table.
+type Right struct {
+	PrincipalType string
+	PrincipalID   string
+	ResourceType  string
+	ResourceID    string
+	CanCreate     bool
+	CanRead       bool
+	CanUpdate     bool
+	CanDelete     bool
+}
+
+// Store handles all auth-related database operations using raw SQL so that
+// the auth package has no dependency on the sqlc-generated code.
+type Store struct {
+	db *sql.DB
+}
+
+// NewStore creates a new auth Store backed by db.
+func NewStore(db *sql.DB) *Store {
+	return &Store{db: db}
+}
+
+// ─── Users ────────────────────────────────────────────────────────────────────
+
+// GetUserByUsername fetches an active user by tenant + username.
+func (s *Store) GetUserByUsername(ctx context.Context, tenantID, username string) (*User, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, tenant_id, username, email, password_hash, user_type, is_active
+		FROM users
+		WHERE tenant_id = ? AND username = ? AND deleted_at IS NULL`,
+		tenantID, username,
+	)
+	return scanUser(row)
+}
+
+// GetUserByID fetches an active user by primary key.
+func (s *Store) GetUserByID(ctx context.Context, id string) (*User, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, tenant_id, username, email, password_hash, user_type, is_active
+		FROM users
+		WHERE id = ? AND deleted_at IS NULL`,
+		id,
+	)
+	return scanUser(row)
+}
+
+// CreateUser inserts a new user row. The password must already be hashed.
+func (s *Store) CreateUser(ctx context.Context, tenantID, username, email, passwordHash string, userType UserType) (*User, error) {
+	id := uuid.New().String()
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO users (id, tenant_id, username, email, password_hash, user_type)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		id, tenantID, username, email, passwordHash, string(userType),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create user: %w", err)
+	}
+	return s.GetUserByID(ctx, id)
+}
+
+// CountUsers returns the total number of non-deleted users across all tenants.
+func (s *Store) CountUsers(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE deleted_at IS NULL`).Scan(&n)
+	return n, err
+}
+
+// ─── API keys ─────────────────────────────────────────────────────────────────
+
+// GetAPIKeyByHash fetches an API key row by its SHA-256 hash.
+// Returns nil, nil when the key does not exist.
+func (s *Store) GetAPIKeyByHash(ctx context.Context, hash string) (*APIKey, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, tenant_id, user_id, name, key_hash, key_prefix, expires_at, revoked_at
+		FROM api_keys
+		WHERE key_hash = ?`,
+		hash,
+	)
+	var k APIKey
+	if err := row.Scan(&k.ID, &k.TenantID, &k.UserID, &k.Name,
+		&k.KeyHash, &k.KeyPrefix, &k.ExpiresAt, &k.RevokedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get api key by hash: %w", err)
+	}
+	return &k, nil
+}
+
+// CreateAPIKey inserts a new API key. keyHash and keyPrefix are computed by
+// the caller via GenerateAPIKey().
+func (s *Store) CreateAPIKey(ctx context.Context, tenantID string, userID *string, name, keyHash, keyPrefix string, expiresAt *time.Time) (*APIKey, error) {
+	id := uuid.New().String()
+	var uid sql.NullString
+	if userID != nil {
+		uid = sql.NullString{String: *userID, Valid: true}
+	}
+	var exp sql.NullTime
+	if expiresAt != nil {
+		exp = sql.NullTime{Time: *expiresAt, Valid: true}
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO api_keys (id, tenant_id, user_id, name, key_hash, key_prefix, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, tenantID, uid, name, keyHash, keyPrefix, exp,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create api key: %w", err)
+	}
+	return s.GetAPIKeyByHash(ctx, keyHash)
+}
+
+// TouchAPIKey updates last_used_at for a key. Errors are intentionally ignored
+// by callers — a failed touch should not block the request.
+func (s *Store) TouchAPIKey(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE api_keys SET last_used_at = ? WHERE id = ?`,
+		time.Now().UTC(), id,
+	)
+	return err
+}
+
+// ─── RBAC ─────────────────────────────────────────────────────────────────────
+
+// GetUserRights returns all rights for a user, including rights inherited via
+// group membership.
+func (s *Store) GetUserRights(ctx context.Context, tenantID, userID string) ([]Right, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.principal_type, r.principal_id, r.resource_type, r.resource_id,
+		       r.can_create, r.can_read, r.can_update, r.can_delete
+		FROM rights r
+		WHERE r.tenant_id = ?
+		  AND (
+		      (r.principal_type = 'user'  AND r.principal_id = ?)
+		   OR (r.principal_type = 'group' AND r.principal_id IN (
+		           SELECT group_id FROM group_members WHERE user_id = ?
+		       ))
+		  )`,
+		tenantID, userID, userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query rights: %w", err)
+	}
+	defer rows.Close()
+
+	var rights []Right
+	for rows.Next() {
+		var r Right
+		var cc, cr, cu, cd int
+		if err := rows.Scan(
+			&r.PrincipalType, &r.PrincipalID,
+			&r.ResourceType, &r.ResourceID,
+			&cc, &cr, &cu, &cd,
+		); err != nil {
+			return nil, fmt.Errorf("scan right: %w", err)
+		}
+		r.CanCreate = cc == 1
+		r.CanRead = cr == 1
+		r.CanUpdate = cu == 1
+		r.CanDelete = cd == 1
+		rights = append(rights, r)
+	}
+	return rights, rows.Err()
+}
+
+// ─── Bootstrap ────────────────────────────────────────────────────────────────
+
+// EnsureAdminUser creates the first admin user if no users exist in the DB.
+// This is a one-time bootstrap so a fresh deployment can be reached via the API.
+func (s *Store) EnsureAdminUser(ctx context.Context, tenantID, tenantName, username, email, password string) error {
+	n, err := s.CountUsers(ctx)
+	if err != nil {
+		return fmt.Errorf("count users: %w", err)
+	}
+	if n > 0 {
+		return nil // already bootstrapped
+	}
+
+	// Create the tenant if it doesn't exist.
+	var exists int
+	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tenants WHERE id = ?`, tenantID).Scan(&exists)
+	if exists == 0 {
+		tid := tenantID
+		if tid == "" {
+			tid = uuid.New().String()
+		}
+		if _, err := s.db.ExecContext(ctx,
+			`INSERT INTO tenants (id, name, description) VALUES (?, ?, ?)`,
+			tid, tenantName, "Default tenant",
+		); err != nil {
+			return fmt.Errorf("create bootstrap tenant: %w", err)
+		}
+		tenantID = tid
+	}
+
+	hash, err := HashPassword(password)
+	if err != nil {
+		return fmt.Errorf("hash bootstrap password: %w", err)
+	}
+
+	if _, err := s.CreateUser(ctx, tenantID, username, email, hash, UserTypeAdmin); err != nil {
+		return fmt.Errorf("create bootstrap admin: %w", err)
+	}
+	return nil
+}
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+
+func scanUser(row *sql.Row) (*User, error) {
+	var u User
+	var isActive int
+	if err := row.Scan(
+		&u.ID, &u.TenantID, &u.Username, &u.Email,
+		&u.PasswordHash, &u.UserType, &isActive,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("scan user: %w", err)
+	}
+	u.IsActive = isActive == 1
+	return &u, nil
+}
