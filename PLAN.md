@@ -81,8 +81,8 @@ Immutable record of all repository events.
 | # | Task | Status | Notes |
 |---|------|--------|-------|
 | 5.1 | Audit event model | ✅ | `audit_log` table in schema |
-| 5.2 | Audit middleware — record all mutating requests | ⬜ | |
-| 5.3 | Audit query API (filter by tenant, user, date, action) | ⬜ | |
+| 5.2 | Audit middleware — record all mutating requests | ✅ | `internal/audit.Middleware` — async, best-effort, action name derived from route pattern |
+| 5.3 | Audit query API (filter by tenant, user, date, action) | ✅ | `GET .../audit` — filters: principal, action (with `*` wildcard), resource, from, to, limit, offset |
 
 ---
 

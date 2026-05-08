@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"tinydm/internal/audit"
 	"tinydm/internal/auth"
 	"tinydm/internal/config"
 	"tinydm/internal/repo"
@@ -13,7 +14,7 @@ import (
 
 // RegisterRoutes mounts all API v1 routes onto r.
 // All routes under /api/v1 (except /auth/login) require authentication.
-func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, authStore *auth.Store, store storage.Store) {
+func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, authStore *auth.Store, store storage.Store, auditStore *audit.Store) {
 	authHandler := NewAuthHandler(cfg, authStore)
 	tenantHandler := NewTenantHandler(repoStore, authStore)
 	projectHandler := NewProjectHandler(repoStore, authStore)
@@ -21,6 +22,7 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 	docHandler := NewDocumentHandler(repoStore, authStore, store)
 	tagHandler := NewTagHandler(repoStore)
 	propHandler := NewPropertyHandler(repoStore)
+	auditHandler := NewAuditHandler(auditStore)
 
 	r.Route("/api/v1", func(r chi.Router) {
 
@@ -30,6 +32,7 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 		// ── Authenticated ─────────────────────────────────────────────────────
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireAuth)
+			r.Use(audit.Middleware(auditStore))
 
 			// Auth
 			r.Get("/auth/me", authHandler.Me)
@@ -44,6 +47,9 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 				r.Get("/", tenantHandler.Get)
 				r.With(auth.RequireAdmin).Put("/", tenantHandler.Update)
 				r.With(auth.RequireAdmin).Delete("/", tenantHandler.Delete)
+
+				// Audit log — admin only
+				r.With(auth.RequireAdmin).Get("/audit", auditHandler.List)
 
 				// Projects
 				r.Get("/projects", projectHandler.List)

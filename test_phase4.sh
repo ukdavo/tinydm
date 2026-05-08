@@ -148,7 +148,7 @@ printf 'Version 2 — updated content\n'  > "$WORK/v2.txt"
 section "Authentication"
 
 login_resp=$(_post "/api/v1/auth/login" \
-    "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASS\"}")
+    "{\"tenant_id\":\"$TENANT_ID\",\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASS\"}")
 TOKEN=$(echo "$login_resp" | jfield "['token']" || true)
 if [[ -z "$TOKEN" ]]; then
     fail "Login failed — aborting"

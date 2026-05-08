@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"tinydm/internal/api"
+	"tinydm/internal/audit"
 	"tinydm/internal/auth"
 	"tinydm/internal/config"
 	"tinydm/internal/db"
@@ -75,6 +76,7 @@ func main() {
 	// ── Stores ────────────────────────────────────────────────────────────────
 	authStore := auth.NewStore(database)
 	repoStore := repo.NewStore(database)
+	auditStore := audit.NewStore(database)
 
 	// Bootstrap: seed the first admin if the DB is empty and a password is set.
 	if cfg.BootstrapAdminPass != "" {
@@ -108,7 +110,7 @@ func main() {
 	r.Get("/health", handleHealth(database))
 
 	// Register all API routes
-	api.RegisterRoutes(r, cfg, repoStore, authStore, fileStore)
+	api.RegisterRoutes(r, cfg, repoStore, authStore, fileStore, auditStore)
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
 	srv := &http.Server{

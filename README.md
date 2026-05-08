@@ -2,7 +2,7 @@
 
 A simple, self-hosted document management system. Small footprint, easy to deploy, no external dependencies.
 
-> **Status:** Phases 1–4 complete. Authentication, the full repository API, document versioning, tags, custom properties, and automatic metadata extraction are all working.
+> **Status:** Phases 1–5 complete. Authentication, the full repository API, document versioning, tags, custom properties, automatic metadata extraction, and a full immutable audit log are all working.
 
 ---
 
@@ -15,12 +15,12 @@ A simple, self-hosted document management system. Small footprint, easy to deplo
 - **Tags** — add, remove, or filter documents by free-form tags
 - **Custom properties** — runtime-defined key/value metadata per document
 - **Automatic metadata extraction** — image dimensions (JPEG, PNG, GIF), PDF version string, Office container type (OOXML / OLE2) detected on upload
+- **Immutable audit log** — every mutating request is recorded async; queryable by action (with `*` wildcard), principal, resource, and date range with pagination
 - **Content-addressed storage** — SHA-256 keyed files; identical content is stored once
 - **Structured JSON logging**, health endpoint, graceful shutdown
 - Single binary · Docker · docker-compose
 
 **Coming in later phases**
-- Audit log with filterable query API (Phase 5)
 - HTMX admin web UI (Phase 6)
 - Unit + integration tests, OpenAPI docs, PostgreSQL support (Phase 7)
 
