@@ -8,9 +8,15 @@ import (
 	"strconv"
 
 	"tinydm/internal/auth"
+	"tinydm/internal/meta"
 	"tinydm/internal/repo"
 	"tinydm/internal/storage"
 )
+
+// headerBytes is the number of bytes read ahead for content-type sniffing and
+// metadata extraction. 64 KiB covers image config headers, PDF magic bytes, and
+// Office signatures while keeping memory overhead low.
+const headerBytes = 65536
 
 // DocumentHandler handles all document-scoped HTTP requests.
 type DocumentHandler struct {
@@ -25,10 +31,26 @@ func NewDocumentHandler(store *repo.Store, authStore *auth.Store, storage storag
 }
 
 // List handles GET /.../{bucketID}/documents
+// Supports ?q= (name search) and ?tag= (tag filter). The two filters are
+// mutually exclusive; ?tag= takes precedence.
 func (h *DocumentHandler) List(w http.ResponseWriter, r *http.Request) {
 	bucket := bucketFromCtx(r)
 
-	// If a search query is present, delegate to search.
+	// Tag filter.
+	if tag := r.URL.Query().Get("tag"); tag != "" {
+		docs, err := h.store.ListDocumentsByTag(r.Context(), bucket.ID, tag)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		if docs == nil {
+			docs = []*repo.Document{}
+		}
+		writeJSON(w, http.StatusOK, docs)
+		return
+	}
+
+	// Name search.
 	if q := r.URL.Query().Get("q"); q != "" {
 		docs, err := h.store.SearchDocuments(r.Context(), bucket.ID, q)
 		if err != nil {
@@ -87,11 +109,14 @@ func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Detect content type: sniff the first 512 bytes then seek back.
-	var sniff [512]byte
-	n, _ := file.Read(sniff[:])
-	contentType := http.DetectContentType(sniff[:n])
-	// Honour the client-supplied type if it's more specific.
+	// Read a leading slice for content-type sniffing and metadata extraction,
+	// then seek back so the full file is stored.
+	hdr := make([]byte, headerBytes)
+	n, _ := file.Read(hdr)
+	hdr = hdr[:n]
+
+	contentType := http.DetectContentType(hdr)
+	// Honour the client-supplied type if it's more specific than octet-stream.
 	if ct := header.Header.Get("Content-Type"); ct != "" && ct != "application/octet-stream" {
 		contentType = ct
 	}
@@ -116,6 +141,12 @@ func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create document record")
 		return
 	}
+
+	// Extract and persist metadata properties (best-effort).
+	if props := meta.Extract(contentType, hdr); len(props) > 0 {
+		_ = h.store.MergeDocumentProperties(r.Context(), doc.ID, props)
+	}
+
 	writeJSON(w, http.StatusCreated, doc)
 }
 
@@ -159,15 +190,18 @@ func (h *DocumentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	size := doc.Size
 	checksum := doc.Checksum
 	storageKey := doc.StorageKey
+	var metaProps map[string]string
 
 	// Replace content if a new file was supplied.
 	file, header, err := r.FormFile("file")
 	if err == nil {
 		defer file.Close()
 
-		var sniff [512]byte
-		n, _ := file.Read(sniff[:])
-		ct := http.DetectContentType(sniff[:n])
+		hdr := make([]byte, headerBytes)
+		n, _ := file.Read(hdr)
+		hdr = hdr[:n]
+
+		ct := http.DetectContentType(hdr)
 		if hct := header.Header.Get("Content-Type"); hct != "" && hct != "application/octet-stream" {
 			ct = hct
 		}
@@ -176,8 +210,8 @@ func (h *DocumentHandler) Update(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		key, sz, cs, err := h.storage.Put(r.Context(), file)
-		if err != nil {
+		key, sz, cs, storeErr := h.storage.Put(r.Context(), file)
+		if storeErr != nil {
 			writeError(w, http.StatusInternalServerError, "failed to store file")
 			return
 		}
@@ -185,6 +219,7 @@ func (h *DocumentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		size = sz
 		checksum = cs
 		storageKey = key
+		metaProps = meta.Extract(contentType, hdr)
 	}
 
 	updated, err := h.store.UpdateDocument(r.Context(), doc.ID, name, contentType, size, checksum, storageKey, p.ID)
@@ -192,6 +227,12 @@ func (h *DocumentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to update document")
 		return
 	}
+
+	// Merge extracted metadata (best-effort, only when a new file was provided).
+	if len(metaProps) > 0 {
+		_ = h.store.MergeDocumentProperties(r.Context(), updated.ID, metaProps)
+	}
+
 	writeJSON(w, http.StatusOK, updated)
 }
 
@@ -217,4 +258,19 @@ func (h *DocumentHandler) ListVersions(w http.ResponseWriter, r *http.Request) {
 		versions = []*repo.DocumentVersion{}
 	}
 	writeJSON(w, http.StatusOK, versions)
+}
+
+// RestoreVersion handles POST /.../{documentID}/versions/{versionID}/restore
+// Snapshots the current document state then restores the named version's content.
+func (h *DocumentHandler) RestoreVersion(w http.ResponseWriter, r *http.Request) {
+	doc := documentFromCtx(r)
+	version := versionFromCtx(r)
+	p, _ := auth.PrincipalFromContext(r.Context())
+
+	updated, err := h.store.RestoreDocumentVersion(r.Context(), doc.ID, version.ID, p.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to restore version")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
 }

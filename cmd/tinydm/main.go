@@ -23,7 +23,19 @@ import (
 
 const version = "0.1.0"
 
+const banner = `
+ _____  _                   ____   __  __
+|_   _|(_)  _ __    _   _  |  _ \ |  \/  |
+  | |  | | | '_ \  | | | | | | | || |\/| |
+  | |  | | | | | | | |_| | | |_| || |  | |
+  |_|  |_| |_| |_|  \__, | |____/ |_|  |_|
+                     |___/
+  Simple Document Management  v%s
+`
+
 func main() {
+	fmt.Printf(banner, version)
+
 	// ── Logger ────────────────────────────────────────────────────────────────
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,

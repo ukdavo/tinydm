@@ -19,6 +19,8 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 	projectHandler := NewProjectHandler(repoStore, authStore)
 	bucketHandler := NewBucketHandler(repoStore, authStore)
 	docHandler := NewDocumentHandler(repoStore, authStore, store)
+	tagHandler := NewTagHandler(repoStore)
+	propHandler := NewPropertyHandler(repoStore)
 
 	r.Route("/api/v1", func(r chi.Router) {
 
@@ -76,7 +78,25 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 							r.Put("/", docHandler.Update)
 							r.Delete("/", docHandler.Delete)
 							r.Get("/content", docHandler.Download)
+
+							// Versions
 							r.Get("/versions", docHandler.ListVersions)
+							r.Route("/versions/{versionID}", func(r chi.Router) {
+								r.Use(VersionCtx(repoStore))
+								r.Post("/restore", docHandler.RestoreVersion)
+							})
+
+							// Tags
+							r.Get("/tags", tagHandler.List)
+							r.Put("/tags", tagHandler.Replace)
+							r.Post("/tags/{tag}", tagHandler.Add)
+							r.Delete("/tags/{tag}", tagHandler.Remove)
+
+							// Custom properties
+							r.Get("/properties", propHandler.List)
+							r.Put("/properties", propHandler.Replace)
+							r.Put("/properties/{key}", propHandler.Set)
+							r.Delete("/properties/{key}", propHandler.Delete)
 						})
 					})
 				})

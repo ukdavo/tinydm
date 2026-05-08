@@ -443,3 +443,195 @@ func scanDocuments(rows *sql.Rows) ([]*Document, error) {
 	}
 	return out, rows.Err()
 }
+
+// ─── Version restore ──────────────────────────────────────────────────────────
+
+// GetDocumentVersion returns a single version record, verifying it belongs to docID.
+func (s *Store) GetDocumentVersion(ctx context.Context, versionID, docID string) (*DocumentVersion, error) {
+	var v DocumentVersion
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, document_id, version, content_type, size, checksum, storage_key, created_by, created_at
+		 FROM document_versions WHERE id=? AND document_id=?`, versionID, docID,
+	).Scan(&v.ID, &v.DocumentID, &v.Version, &v.ContentType,
+		&v.Size, &v.Checksum, &v.StorageKey, &v.CreatedBy, &v.CreatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get document version: %w", err)
+	}
+	return &v, nil
+}
+
+// RestoreDocumentVersion snapshots the current document state then replaces its
+// content with the values from the specified version record.
+func (s *Store) RestoreDocumentVersion(ctx context.Context, docID, versionID, restoredBy string) (*Document, error) {
+	v, err := s.GetDocumentVersion(ctx, versionID, docID)
+	if err != nil || v == nil {
+		return nil, fmt.Errorf("version not found: %s", versionID)
+	}
+	current, err := s.GetDocument(ctx, docID)
+	if err != nil || current == nil {
+		return nil, fmt.Errorf("document not found: %s", docID)
+	}
+	// UpdateDocument snapshots current state automatically before applying changes.
+	return s.UpdateDocument(ctx, docID, current.Name,
+		v.ContentType, v.Size, v.Checksum, v.StorageKey, restoredBy)
+}
+
+// ─── Tags ─────────────────────────────────────────────────────────────────────
+
+// ListDocumentTags returns all tags for the given document, sorted.
+func (s *Store) ListDocumentTags(ctx context.Context, docID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT tag FROM document_tags WHERE document_id=? ORDER BY tag`, docID)
+	if err != nil {
+		return nil, fmt.Errorf("list tags: %w", err)
+	}
+	defer rows.Close()
+	var tags []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, fmt.Errorf("scan tag: %w", err)
+		}
+		tags = append(tags, t)
+	}
+	return tags, rows.Err()
+}
+
+// AddDocumentTag inserts a tag for the document (no-op if it already exists).
+func (s *Store) AddDocumentTag(ctx context.Context, docID, tag string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO document_tags (document_id, tag) VALUES (?, ?)`, docID, tag)
+	return err
+}
+
+// RemoveDocumentTag deletes a single tag from the document.
+func (s *Store) RemoveDocumentTag(ctx context.Context, docID, tag string) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM document_tags WHERE document_id=? AND tag=?`, docID, tag)
+	return err
+}
+
+// SetDocumentTags replaces all tags for the document atomically.
+func (s *Store) SetDocumentTags(ctx context.Context, docID string, tags []string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM document_tags WHERE document_id=?`, docID); err != nil {
+		return err
+	}
+	for _, tag := range tags {
+		if tag == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO document_tags (document_id, tag) VALUES (?, ?)`, docID, tag); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ListDocumentsByTag returns documents in a bucket that carry the given tag.
+func (s *Store) ListDocumentsByTag(ctx context.Context, bucketID, tag string) ([]*Document, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT d.id, d.bucket_id, d.name, d.content_type, d.size, d.checksum,
+		        d.storage_key, d.version, d.created_by, d.created_at, d.updated_at
+		 FROM documents d
+		 JOIN document_tags dt ON dt.document_id = d.id AND dt.tag = ?
+		 WHERE d.bucket_id=? AND d.deleted_at IS NULL ORDER BY d.name`,
+		tag, bucketID)
+	if err != nil {
+		return nil, fmt.Errorf("list documents by tag: %w", err)
+	}
+	defer rows.Close()
+	return scanDocuments(rows)
+}
+
+// ─── Custom properties ────────────────────────────────────────────────────────
+
+// GetDocumentProperties returns all custom properties as a map.
+func (s *Store) GetDocumentProperties(ctx context.Context, docID string) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT key, value FROM document_properties WHERE document_id=? ORDER BY key`, docID)
+	if err != nil {
+		return nil, fmt.Errorf("get properties: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[string]string)
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, fmt.Errorf("scan property: %w", err)
+		}
+		out[k] = v
+	}
+	return out, rows.Err()
+}
+
+// SetDocumentProperty upserts a single key/value property.
+func (s *Store) SetDocumentProperty(ctx context.Context, docID, key, value string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO document_properties (document_id, key, value) VALUES (?, ?, ?)
+		 ON CONFLICT(document_id, key) DO UPDATE SET value=excluded.value`,
+		docID, key, value)
+	return err
+}
+
+// DeleteDocumentProperty removes a single property key.
+func (s *Store) DeleteDocumentProperty(ctx context.Context, docID, key string) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM document_properties WHERE document_id=? AND key=?`, docID, key)
+	return err
+}
+
+// SetDocumentProperties replaces all custom properties atomically.
+// Keys prefixed with "sys." are reserved for system metadata and are skipped.
+func (s *Store) SetDocumentProperties(ctx context.Context, docID string, props map[string]string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	// Remove only non-system properties.
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM document_properties WHERE document_id=? AND key NOT LIKE 'sys.%'`, docID); err != nil {
+		return err
+	}
+	for k, v := range props {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO document_properties (document_id, key, value) VALUES (?, ?, ?)
+			 ON CONFLICT(document_id, key) DO UPDATE SET value=excluded.value`,
+			docID, k, v); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// MergeDocumentProperties upserts the given key/value pairs without touching
+// existing keys that are absent from props.
+func (s *Store) MergeDocumentProperties(ctx context.Context, docID string, props map[string]string) error {
+	if len(props) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	for k, v := range props {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO document_properties (document_id, key, value) VALUES (?, ?, ?)
+			 ON CONFLICT(document_id, key) DO UPDATE SET value=excluded.value`,
+			docID, k, v); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

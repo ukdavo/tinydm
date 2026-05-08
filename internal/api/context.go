@@ -16,6 +16,7 @@ const (
 	projectKey  ctxKey = "project"
 	bucketKey   ctxKey = "bucket"
 	documentKey ctxKey = "document"
+	versionKey  ctxKey = "version"
 )
 
 // ─── Resource context middleware ──────────────────────────────────────────────
@@ -127,6 +128,32 @@ func documentFromCtx(r *http.Request) *repo.Document {
 	return d
 }
 
+func versionFromCtx(r *http.Request) *repo.DocumentVersion {
+	v, _ := r.Context().Value(versionKey).(*repo.DocumentVersion)
+	return v
+}
+
 func contextWith(ctx context.Context, key ctxKey, val any) context.Context {
 	return context.WithValue(ctx, key, val)
+}
+
+// VersionCtx loads the document version identified by {versionID} and verifies
+// it belongs to the document already in context.
+func VersionCtx(store *repo.Store) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			doc := documentFromCtx(r)
+			id := chi.URLParam(r, "versionID")
+			v, err := store.GetDocumentVersion(r.Context(), id, doc.ID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error")
+				return
+			}
+			if v == nil {
+				writeError(w, http.StatusNotFound, "version not found")
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(contextWith(r.Context(), versionKey, v)))
+		})
+	}
 }

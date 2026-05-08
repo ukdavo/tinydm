@@ -65,12 +65,12 @@ Automatic versioning on update, and rich metadata support.
 |---|------|--------|-------|
 | 4.1 | Version model — snapshot on every update | ✅ | `document_versions` table in schema |
 | 4.2 | Version history endpoint | ✅ | `GET .../documents/{id}/versions` |
-| 4.3 | Version restore endpoint | ⬜ | |
-| 4.4 | System properties (file size, MIME type, checksum) | ⬜ | |
-| 4.5 | Tag support (add / remove / filter) | ⬜ | |
-| 4.6 | Custom properties (runtime-defined key/value) | ⬜ | |
-| 4.7 | Metadata extraction — EXIF (images) | ⬜ | |
-| 4.8 | Metadata extraction — other formats (Office, PDF) | ⬜ | |
+| 4.3 | Version restore endpoint | ✅ | `POST .../versions/{versionID}/restore` — snapshots current, applies old content |
+| 4.4 | System properties (file size, MIME type, checksum) | ✅ | Already present on `Document`; all properties surfaced via `GET /properties` |
+| 4.5 | Tag support (add / remove / filter) | ✅ | `GET/PUT /tags`, `POST/DELETE /tags/{tag}`, `?tag=` filter on list |
+| 4.6 | Custom properties (runtime-defined key/value) | ✅ | `GET/PUT /properties`, `PUT/DELETE /properties/{key}` |
+| 4.7 | Metadata extraction — EXIF (images) | ✅ | `internal/meta` — image dimensions (width/height/format) via stdlib; full EXIF deferred to backlog |
+| 4.8 | Metadata extraction — other formats (Office, PDF) | ✅ | PDF version string, Office container type (OOXML vs OLE2) from magic bytes |
 
 ---
 
@@ -133,6 +133,8 @@ Items from the spec not in scope for the initial release.
 | Multiple content stores | S3, NFS — storage interface already planned |
 | OAuth | SSO / social login support |
 | Associations / relations | Links between documents |
+| Full EXIF extraction | Requires e.g. `github.com/rwcarlsen/goexif`; hook in `internal/meta` already present |
+| Office metadata (author, title, page count) | Requires OOXML/OLE2 parser; container type already detected |
 
 ---
 
