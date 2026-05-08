@@ -22,7 +22,7 @@ A simple, self-hosted document management system. Small footprint, easy to deplo
 - Single binary · Docker · docker-compose
 
 **Coming in Phase 7**
-- Unit + integration tests, OpenAPI docs, PostgreSQL support
+- Document & bucket management UI: bucket rename, document update, name search, tag filter, tag management, custom properties, metadata display, version history and restore
 
 ---
 
@@ -353,7 +353,8 @@ See [PLAN.md](./PLAN.md) for the full task-level breakdown.
 | 4 | Document versioning, tags, custom properties, metadata extraction | ✅ Done |
 | 5 | Audit log | ✅ Done |
 | 6 | Admin web UI (HTMX) | ✅ Done |
-| 7 | Hardening, tests, OpenAPI, release | ⬜ Next |
+| 7 | Document & bucket management UI — search, tags, properties, versions | ⬜ Next |
+| 8 | Hardening, tests, OpenAPI, release | ⬜ |
 
 ---
 

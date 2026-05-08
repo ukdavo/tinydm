@@ -104,20 +104,40 @@ Simple HTMX-based UI for administrators.
 
 ---
 
-## Phase 7 — Hardening & Release
+## Phase 7 — Document & Bucket Management UI
+
+Full CRUD, search, and document lifecycle management in the admin web UI.
+The REST API already supports all of these operations; this phase exposes them visually.
+
+| # | Task | Status | Notes |
+|---|------|--------|-------|
+| 7.1 | Bucket edit — rename and update description | ⬜ | Inline edit row; calls `PUT /api/v1/…/buckets/{id}`; row-level HTMX swap |
+| 7.2 | Document update — rename and/or replace content | ⬜ | Edit form on document row; calls `PUT .../documents/{id}` with optional file re-upload; snapshots previous version automatically |
+| 7.3 | Document name search — live filter on document list | ⬜ | Search input on the documents page; HTMX-driven `?q=` filter; debounced with `hx-trigger="input delay:300ms"` |
+| 7.4 | Tag filter — filter document list by tag | ⬜ | Tag input on documents page; HTMX-driven `?tag=` filter; clears when empty |
+| 7.5 | Document detail page | ⬜ | `/admin/documents/{id}` — single page showing name, content-type, size, checksum, created-by; entry point for management panels below |
+| 7.6 | Tag management UI | ⬜ | Tag list with add/remove on document detail; `POST/DELETE .../tags/{tag}` per change; tag chips rendered as HTMX partials |
+| 7.7 | Custom properties UI | ⬜ | Key/value table on document detail; inline add/edit/delete; calls `PUT/DELETE .../properties/{key}`; reserved `sys.*` keys shown read-only |
+| 7.8 | System metadata display | ⬜ | Read-only panel on document detail showing extracted properties (image dimensions, PDF version, Office container type) |
+| 7.9 | Version history and restore | ⬜ | Version list on document detail (newest first); restore button calls `POST .../versions/{versionID}/restore` with confirmation dialog |
+| 7.10 | Integration test — `test_phase7.sh` | ⬜ | Covers all nine UI sections above; follows same curl + cookie-jar pattern as `test_phase6.sh` |
+
+---
+
+## Phase 8 — Hardening & Release
 
 Testing, security, packaging, and documentation.
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 7.1 | Unit tests — auth, storage, metadata | ⬜ | |
-| 7.2 | Integration tests — full API flows | ⬜ | |
-| 7.3 | Security review (auth, input validation, path traversal) | ⬜ | |
-| 7.4 | Cross-platform builds (macOS, Linux, Windows) | ⬜ | |
-| 7.5 | PostgreSQL support (alternative to SQLite) | ⬜ | |
-| 7.6 | API documentation (OpenAPI / Swagger) | ⬜ | |
-| 7.7 | Deployment guide (binary, Docker, docker-compose) | ⬜ | |
-| 7.8 | Performance baseline testing | ⬜ | |
+| 8.1 | Unit tests — auth, storage, metadata | ⬜ | |
+| 8.2 | Integration tests — full API flows | ⬜ | |
+| 8.3 | Security review (auth, input validation, path traversal) | ⬜ | |
+| 8.4 | Cross-platform builds (macOS, Linux, Windows) | ⬜ | |
+| 8.5 | PostgreSQL support (alternative to SQLite) | ⬜ | |
+| 8.6 | API documentation (OpenAPI / Swagger) | ⬜ | |
+| 8.7 | Deployment guide (binary, Docker, docker-compose) | ⬜ | |
+| 8.8 | Performance baseline testing | ⬜ | |
 
 ---
 
