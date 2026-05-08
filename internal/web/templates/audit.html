@@ -1,0 +1,73 @@
+{{define "title"}}Audit Log{{end}}
+{{define "content"}}
+<div class="page-header">
+  <div><h1>Audit Log</h1><p>Immutable record of all mutating operations</p></div>
+</div>
+
+<div class="card">
+  <!-- Filter bar -->
+  <div class="filter-bar"
+       hx-get="/admin/audit/events"
+       hx-trigger="change from:.filter-bar, keyup changed delay:400ms from:#filter-action,#filter-principal"
+       hx-target="#audit-rows"
+       hx-swap="innerHTML"
+       hx-include=".filter-bar input, .filter-bar select">
+    <div class="form-group">
+      <label>Action</label>
+      <input type="text" name="action" id="filter-action" placeholder="document.* or exact">
+    </div>
+    <div class="form-group">
+      <label>Principal</label>
+      <input type="text" name="principal" id="filter-principal" placeholder="username">
+    </div>
+    <div class="form-group">
+      <label>From</label>
+      <input type="datetime-local" name="from" id="filter-from">
+    </div>
+    <div class="form-group">
+      <label>To</label>
+      <input type="datetime-local" name="to" id="filter-to">
+    </div>
+    <div class="form-group" style="max-width:90px;">
+      <label>Limit</label>
+      <select name="limit" id="filter-limit">
+        <option value="50">50</option>
+        <option value="100">100</option>
+        <option value="250">250</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Principal</th>
+          <th>Action</th>
+          <th>Resource</th>
+          <th>Tenant</th>
+        </tr>
+      </thead>
+      <tbody id="audit-rows">
+        {{range .Events}}
+        {{template "audit-row" .}}
+        {{end}}
+        {{if not .Events}}
+        <tr><td colspan="5"><div class="empty-state"><p>No events found.</p></div></td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</div>
+{{end}}
+
+{{define "audit-row"}}
+<tr>
+  <td class="muted" style="white-space:nowrap;">{{.CreatedAt}}</td>
+  <td>{{.Principal}}</td>
+  <td><span class="badge badge-blue">{{.Action}}</span></td>
+  <td class="mono">{{.Resource}}</td>
+  <td class="muted">{{.TenantID}}</td>
+</tr>
+{{end}}

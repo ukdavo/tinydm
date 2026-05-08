@@ -1,0 +1,68 @@
+{{define "title"}}Tenants{{end}}
+{{define "content"}}
+<div class="page-header">
+  <div><h1>Tenants</h1><p>All tenants in the system</p></div>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Description</th>
+          <th>Projects</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="tenants-list">
+        {{range .Tenants}}
+        {{template "tenant-row" .}}
+        {{end}}
+      </tbody>
+    </table>
+    {{if not .Tenants}}
+    <div class="empty-state"><p>No tenants yet.</p></div>
+    {{end}}
+  </div>
+
+  <!-- Inline create form -->
+  <div class="inline-form">
+    <div class="form-group">
+      <label>Name</label>
+      <input type="text" name="name" id="new-tenant-name" placeholder="acme-corp" required>
+    </div>
+    <div class="form-group">
+      <label>Description</label>
+      <input type="text" name="description" id="new-tenant-desc" placeholder="Optional">
+    </div>
+    <button class="btn btn-primary"
+      hx-post="/admin/tenants"
+      hx-include="#new-tenant-name,#new-tenant-desc"
+      hx-target="#tenants-list"
+      hx-swap="beforeend"
+      hx-on::after-request="this.closest('.inline-form').querySelectorAll('input').forEach(i=>i.value='')">
+      + Add Tenant
+    </button>
+  </div>
+</div>
+{{end}}
+
+{{define "tenant-row"}}
+<tr id="tenant-{{.ID}}">
+  <td class="mono">{{.ID}}</td>
+  <td><a href="/admin/tenants/{{.ID}}/projects">{{.Name}}</a></td>
+  <td class="muted">{{.Description}}</td>
+  <td class="muted">—</td>
+  <td class="text-right">
+    <button class="btn btn-danger btn-sm"
+      hx-delete="/admin/tenants/{{.ID}}"
+      hx-target="#tenant-{{.ID}}"
+      hx-swap="outerHTML"
+      hx-confirm="Delete tenant '{{.Name}}'? This will remove all projects, buckets, and documents.">
+      Delete
+    </button>
+  </td>
+</tr>
+{{end}}

@@ -1,0 +1,108 @@
+{{define "title"}}Users{{end}}
+{{define "content"}}
+<div class="page-header">
+  <div><h1>Users</h1><p>Manage user accounts for tenant <strong>{{.Principal.TenantID}}</strong></p></div>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="users-list">
+        {{range .Users}}
+        {{template "user-row" .}}
+        {{end}}
+      </tbody>
+    </table>
+    {{if not .Users}}
+    <div class="empty-state"><p>No users yet.</p></div>
+    {{end}}
+  </div>
+
+  <!-- Create user form -->
+  <div class="inline-form">
+    <div class="form-group">
+      <label>Username</label>
+      <input type="text" name="username" id="new-user-name" placeholder="jdoe" required>
+    </div>
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" name="email" id="new-user-email" placeholder="jdoe@example.com" required>
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" name="password" id="new-user-pass" placeholder="••••••••" required>
+    </div>
+    <div class="form-group" style="max-width:100px;">
+      <label>Role</label>
+      <select name="role" id="new-user-role">
+        <option value="user">User</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+    <button class="btn btn-primary"
+      hx-post="/admin/users"
+      hx-include="#new-user-name,#new-user-email,#new-user-pass,#new-user-role"
+      hx-target="#users-list"
+      hx-swap="beforeend"
+      hx-on::after-request="this.closest('.inline-form').querySelectorAll('input').forEach(i=>i.value='')">
+      + Add User
+    </button>
+  </div>
+</div>
+{{end}}
+
+{{define "user-row"}}
+<tr id="user-{{.ID}}">
+  <td><strong>{{.Username}}</strong></td>
+  <td class="muted">{{.Email}}</td>
+  <td>
+    {{if eq (string .UserType) "admin"}}
+      <span class="badge badge-blue">Admin</span>
+    {{else}}
+      <span class="badge badge-gray">User</span>
+    {{end}}
+  </td>
+  <td>
+    {{if .IsActive}}
+      <span class="badge badge-green">Active</span>
+    {{else}}
+      <span class="badge badge-red">Inactive</span>
+    {{end}}
+  </td>
+  <td class="text-right">
+    <div class="flex gap-8 items-center" style="justify-content:flex-end;">
+      {{if .IsActive}}
+      <button class="btn btn-ghost btn-sm"
+        hx-post="/admin/users/{{.ID}}/deactivate"
+        hx-target="#user-{{.ID}}"
+        hx-swap="outerHTML">
+        Deactivate
+      </button>
+      {{else}}
+      <button class="btn btn-ghost btn-sm"
+        hx-post="/admin/users/{{.ID}}/activate"
+        hx-target="#user-{{.ID}}"
+        hx-swap="outerHTML">
+        Activate
+      </button>
+      {{end}}
+      <button class="btn btn-danger btn-sm"
+        hx-delete="/admin/users/{{.ID}}"
+        hx-target="#user-{{.ID}}"
+        hx-swap="outerHTML"
+        hx-confirm="Delete user '{{.Username}}'?">
+        Delete
+      </button>
+    </div>
+  </td>
+</tr>
+{{end}}

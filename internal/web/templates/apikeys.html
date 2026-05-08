@@ -1,0 +1,86 @@
+{{define "title"}}API Keys{{end}}
+{{define "content"}}
+<div class="page-header">
+  <div><h1>API Keys</h1><p>Manage API keys for tenant <strong>{{.Principal.TenantID}}</strong></p></div>
+</div>
+
+{{if .NewKey}}
+<div class="flash flash-ok">
+  <div>
+    <strong>Key created — copy it now, it won't be shown again.</strong><br>
+    <code style="font-family:monospace;font-size:13px;word-break:break-all;">{{.NewKey}}</code>
+  </div>
+</div>
+{{end}}
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Prefix</th>
+          <th>Expires</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="keys-list">
+        {{range .Keys}}
+        {{template "apikey-row" .}}
+        {{end}}
+      </tbody>
+    </table>
+    {{if not .Keys}}
+    <div class="empty-state">
+      <p>No API keys yet.</p>
+      <p class="hint">Create a key to authenticate API requests without a password.</p>
+    </div>
+    {{end}}
+  </div>
+
+  <!-- Create key form -->
+  <div class="inline-form">
+    <div class="form-group">
+      <label>Key Name</label>
+      <input type="text" name="name" id="new-key-name" placeholder="ci-deploy" required>
+    </div>
+    <button class="btn btn-primary"
+      hx-post="/admin/apikeys"
+      hx-include="#new-key-name"
+      hx-target="body"
+      hx-push-url="true"
+      hx-on::after-request="document.getElementById('new-key-name').value=''">
+      + Generate Key
+    </button>
+  </div>
+</div>
+{{end}}
+
+{{define "apikey-row"}}
+<tr id="key-{{.ID}}">
+  <td><strong>{{.Name}}</strong></td>
+  <td class="mono">{{.KeyPrefix}}…</td>
+  <td class="muted">
+    {{if .ExpiresAt.Valid}}{{.ExpiresAt.Time.Format "2006-01-02"}}{{else}}Never{{end}}
+  </td>
+  <td>
+    {{if .RevokedAt.Valid}}
+      <span class="badge badge-red">Revoked</span>
+    {{else}}
+      <span class="badge badge-green">Active</span>
+    {{end}}
+  </td>
+  <td class="text-right">
+    {{if not .RevokedAt.Valid}}
+    <button class="btn btn-danger btn-sm"
+      hx-post="/admin/apikeys/{{.ID}}/revoke"
+      hx-target="#key-{{.ID}}"
+      hx-swap="outerHTML"
+      hx-confirm="Revoke key '{{.Name}}'? This cannot be undone.">
+      Revoke
+    </button>
+    {{end}}
+  </td>
+</tr>
+{{end}}

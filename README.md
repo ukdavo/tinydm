@@ -2,7 +2,7 @@
 
 A simple, self-hosted document management system. Small footprint, easy to deploy, no external dependencies.
 
-> **Status:** Phases 1–5 complete. Authentication, the full repository API, document versioning, tags, custom properties, automatic metadata extraction, and a full immutable audit log are all working.
+> **Status:** Phases 1–6 complete. The full REST API, document versioning, tags, custom properties, automatic metadata extraction, an immutable audit log, and an HTMX admin web UI are all working.
 
 ---
 
@@ -15,14 +15,14 @@ A simple, self-hosted document management system. Small footprint, easy to deplo
 - **Tags** — add, remove, or filter documents by free-form tags
 - **Custom properties** — runtime-defined key/value metadata per document
 - **Automatic metadata extraction** — image dimensions (JPEG, PNG, GIF), PDF version string, Office container type (OOXML / OLE2) detected on upload
-- **Immutable audit log** — every mutating request is recorded async; queryable by action (with `*` wildcard), principal, resource, and date range with pagination
+- **Immutable audit log** — every mutating request recorded async; queryable by action (with `*` wildcard), principal, resource, and date range with pagination
+- **Admin web UI** — HTMX-powered interface at `/admin/` covering tenants, projects, buckets, documents, users, API keys, and audit log; all assets embedded in the binary
 - **Content-addressed storage** — SHA-256 keyed files; identical content is stored once
 - **Structured JSON logging**, health endpoint, graceful shutdown
 - Single binary · Docker · docker-compose
 
-**Coming in later phases**
-- HTMX admin web UI (Phase 6)
-- Unit + integration tests, OpenAPI docs, PostgreSQL support (Phase 7)
+**Coming in Phase 7**
+- Unit + integration tests, OpenAPI docs, PostgreSQL support
 
 ---
 
@@ -32,11 +32,11 @@ A simple, self-hosted document management system. Small footprint, easy to deplo
 |---|---|
 | Language | Go 1.21+ |
 | HTTP router | [Chi](https://github.com/go-chi/chi) |
-| Database | SQLite (default) via [modernc/sqlite](https://gitlab.com/cznic/sqlite) — no CGO |
+| Database | SQLite via [modernc/sqlite](https://gitlab.com/cznic/sqlite) — no CGO |
 | Migrations | [Goose](https://github.com/pressly/goose) (embedded SQL files) |
 | Auth | bcrypt · HS256 JWT · SHA-256 API keys |
 | Metadata | stdlib `image/*` packages (zero extra deps) |
-| Admin UI | HTMX + Go `html/template` _(Phase 6)_ |
+| Admin UI | HTMX 2 + Go `html/template` — embedded in binary |
 | Packaging | Single binary · Docker |
 
 ---
@@ -59,14 +59,9 @@ TINYDM_BOOTSTRAP_ADMIN_PASS=changeme \
 go run ./cmd/tinydm
 ```
 
-Or use the helper script (loads `.env` automatically):
+The server starts on `http://localhost:8080`. On first run a default tenant (`default`) and an admin user (`admin`) are created automatically.
 
-```bash
-cp .env.example .env   # edit JWT_SECRET and admin password
-./run.sh
-```
-
-The server starts on `http://localhost:8080`. On first run a default tenant and admin user are created automatically (see [Bootstrap](#bootstrap)).
+Open `http://localhost:8080/admin/` in a browser to reach the admin UI. Sign in with tenant ID `default`, username `admin`, and the password you set above.
 
 ### Run with Docker
 
@@ -87,6 +82,25 @@ Or with Docker Compose:
 # Edit docker-compose.yml to set TINYDM_JWT_SECRET
 docker compose up
 ```
+
+---
+
+## Admin web UI
+
+Navigate to `http://localhost:8080/admin/` after starting the server.
+
+| Section | What you can do |
+|---|---|
+| Dashboard | System-wide counts and recent audit events |
+| Tenants | Create and delete tenants; drill into projects |
+| Projects | Create and delete projects within a tenant |
+| Buckets | Create and delete buckets within a project |
+| Documents | Upload, download, and delete files; truncated checksum shown |
+| Users | Create users, set role (admin / user), activate / deactivate, delete |
+| API Keys | Generate keys (plaintext shown once), revoke |
+| Audit Log | Filter by action (supports `*` wildcard), principal, and date range |
+
+All table edits use HTMX inline row swaps — no full page reloads.
 
 ---
 
@@ -121,7 +135,7 @@ This is a one-time operation — subsequent starts skip it silently.
 
 ## API
 
-All endpoints except `/health` and `POST /api/v1/auth/login` require authentication.
+All endpoints except `/health`, `POST /api/v1/auth/login`, and the `/admin/` web UI pages require API authentication.
 
 ### Authentication
 
@@ -133,7 +147,7 @@ TinyDM supports three methods on every protected endpoint.
 # 1. Obtain a token
 curl -s -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"changeme"}'
+  -d '{"tenant_id":"default","username":"admin","password":"changeme"}'
 
 # 2. Use the token
 curl http://localhost:8080/api/v1/auth/me \
@@ -235,6 +249,12 @@ Custom key/value metadata. Keys prefixed with `sys.` are reserved for system use
 | `PUT` | `…/documents/{documentID}/properties/{key}` | Upsert a single property — body: `{"value":"…"}` |
 | `DELETE` | `…/documents/{documentID}/properties/{key}` | Delete a single property |
 
+#### Audit log
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/tenants/{tenantID}/audit` | Required | Query audit events. Filters: `action` (supports `*` wildcard), `principal`, `resource`, `from`, `to`, `limit`, `offset` |
+
 ---
 
 ### Automatic metadata extraction
@@ -269,15 +289,17 @@ make clean        # remove bin/ and local *.db files
 
 ### Integration tests
 
-A shell script covers the Phase 4 features end-to-end. Start the server first, then run:
+Shell scripts cover phases 4–6 end-to-end. Start the server first, then run any script:
 
 ```bash
 ./run.sh &
 sleep 2
-./test_phase4.sh
+./test_phase4.sh   # versioning, tags, properties, metadata extraction
+./test_phase5.sh   # audit log recording, filtering, pagination, access control
+./test_phase6.sh   # admin web UI — login, dashboard, CRUD, audit log viewer
 ```
 
-Requires `curl` and `python3`. Cleans up all created test data on completion.
+All scripts require `curl` and `python3`, and clean up all created test data on completion. Each request is printed to the console with method, path, and HTTP status as it runs.
 
 ### Project structure
 
@@ -286,6 +308,7 @@ tinydm/
 ├── cmd/tinydm/         Entry point (main.go)
 ├── internal/
 │   ├── api/            HTTP handlers, response helpers, route registration
+│   ├── audit/          Audit log store + recording middleware
 │   ├── auth/           Authentication, JWT, API keys, RBAC middleware
 │   ├── config/         Environment-variable configuration
 │   ├── db/
@@ -293,8 +316,13 @@ tinydm/
 │   │   └── queries/    sqlc SQL query files
 │   ├── meta/           Automatic metadata extraction (image, PDF, Office)
 │   ├── repo/           Repository store — CRUD for all domain types
-│   └── storage/        Content-addressed file storage abstraction
+│   ├── storage/        Content-addressed file storage abstraction
+│   └── web/            HTMX admin UI — handler, templates, static assets
+│       ├── static/     Embedded CSS
+│       └── templates/  Embedded HTML templates (base layout + 8 pages)
 ├── test_phase4.sh      Phase 4 integration test script
+├── test_phase5.sh      Phase 5 integration test script
+├── test_phase6.sh      Phase 6 integration test script
 ├── Dockerfile
 ├── docker-compose.yml
 ├── Makefile
@@ -323,9 +351,9 @@ See [PLAN.md](./PLAN.md) for the full task-level breakdown.
 | 2 | Authentication & authorisation | ✅ Done |
 | 3 | Repository API — tenant / project / bucket / document CRUD | ✅ Done |
 | 4 | Document versioning, tags, custom properties, metadata extraction | ✅ Done |
-| 5 | Audit log | ⬜ Next |
-| 6 | Admin web UI (HTMX) | ⬜ |
-| 7 | Hardening, tests, OpenAPI, release | ⬜ |
+| 5 | Audit log | ✅ Done |
+| 6 | Admin web UI (HTMX) | ✅ Done |
+| 7 | Hardening, tests, OpenAPI, release | ⬜ Next |
 
 ---
 

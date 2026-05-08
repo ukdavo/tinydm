@@ -20,6 +20,7 @@ import (
 	"tinydm/internal/db"
 	"tinydm/internal/repo"
 	"tinydm/internal/storage"
+	"tinydm/internal/web"
 )
 
 const version = "0.1.0"
@@ -111,6 +112,10 @@ func main() {
 
 	// Register all API routes
 	api.RegisterRoutes(r, cfg, repoStore, authStore, fileStore, auditStore)
+
+	// Register admin web UI routes
+	webHandler := web.New(cfg, repoStore, authStore, auditStore, fileStore)
+	web.RegisterRoutes(r, webHandler)
 
 	// ── HTTP server ───────────────────────────────────────────────────────────
 	srv := &http.Server{

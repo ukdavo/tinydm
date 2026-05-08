@@ -1,0 +1,68 @@
+{{define "title"}}Dashboard{{end}}
+{{define "content"}}
+<div class="page-header">
+  <div>
+    <h1>Dashboard</h1>
+    <p>System overview for tenant <strong>{{.Principal.TenantID}}</strong></p>
+  </div>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="label">Tenants</div>
+    <div class="value">{{.Stats.Tenants}}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Users</div>
+    <div class="value">{{.Stats.Users}}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Projects</div>
+    <div class="value">{{.Stats.Projects}}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Buckets</div>
+    <div class="value">{{.Stats.Buckets}}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Documents</div>
+    <div class="value">{{.Stats.Documents}}</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h2>Recent Activity</h2>
+    <a href="/admin/audit" class="btn btn-ghost btn-sm">View all →</a>
+  </div>
+  <div class="table-wrap">
+    {{if .RecentAudit}}
+    <table>
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Principal</th>
+          <th>Action</th>
+          <th>Resource</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .RecentAudit}}
+        <tr>
+          <td class="muted">{{.CreatedAt}}</td>
+          <td>{{.Principal}}</td>
+          <td><span class="badge badge-blue">{{.Action}}</span></td>
+          <td class="mono">{{.Resource}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <div class="empty-state">
+      <p>No activity yet.</p>
+      <p class="hint">Audit events appear here as the API is used.</p>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}

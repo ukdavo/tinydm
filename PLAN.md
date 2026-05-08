@@ -92,15 +92,15 @@ Simple HTMX-based UI for administrators.
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 6.1 | Go `html/template` + HTMX base layout | ⬜ | |
-| 6.2 | Embed static assets in binary | ⬜ | |
-| 6.3 | Login page | ⬜ | |
-| 6.4 | Dashboard — system overview | ⬜ | |
-| 6.5 | Tenant / project / bucket browser | ⬜ | |
-| 6.6 | Document list, upload, download, delete | ⬜ | |
-| 6.7 | User & group management | ⬜ | |
-| 6.8 | API key management | ⬜ | |
-| 6.9 | Audit log viewer | ⬜ | |
+| 6.1 | Go `html/template` + HTMX base layout | ✅ | `internal/web/web.go` — clone-and-parse, FuncMap, session middleware |
+| 6.2 | Embed static assets in binary | ✅ | `internal/web/embed.go` — `//go:embed static templates` |
+| 6.3 | Login page | ✅ | Cookie-based JWT session; POST `/admin/login`, GET `/admin/logout` |
+| 6.4 | Dashboard — system overview | ✅ | Tenant/user/project/bucket/document counts + recent audit events |
+| 6.5 | Tenant / project / bucket browser | ✅ | HTMX inline create/delete; breadcrumb nav; row-level partial swaps |
+| 6.6 | Document list, upload, download, delete | ✅ | Multipart upload, streaming download, storage cleanup on delete |
+| 6.7 | User management | ✅ | Create, activate/deactivate, delete; role badge; user-row partial |
+| 6.8 | API key management | ✅ | Generate (plaintext shown once), revoke; apikey-row partial |
+| 6.9 | Audit log viewer | ✅ | Filter bar (action, principal, date, limit) with HTMX live update |
 
 ---
 

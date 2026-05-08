@@ -370,6 +370,67 @@ func (s *Store) ListDocumentVersions(ctx context.Context, docID string) ([]*Docu
 	return out, rows.Err()
 }
 
+// ─── Counts (used by the admin dashboard) ────────────────────────────────────
+
+// CountTenants returns the number of non-deleted tenants.
+func (s *Store) CountTenants(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM tenants WHERE deleted_at IS NULL`).Scan(&n)
+	return n, err
+}
+
+// CountProjects returns the number of non-deleted projects for a tenant.
+// If tenantID is empty, counts across all tenants.
+func (s *Store) CountProjects(ctx context.Context, tenantID string) (int, error) {
+	var n int
+	var err error
+	if tenantID == "" {
+		err = s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM projects WHERE deleted_at IS NULL`).Scan(&n)
+	} else {
+		err = s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM projects WHERE tenant_id = ? AND deleted_at IS NULL`,
+			tenantID).Scan(&n)
+	}
+	return n, err
+}
+
+// CountBuckets returns the number of non-deleted buckets for a tenant's projects.
+// If tenantID is empty, counts across all tenants.
+func (s *Store) CountBuckets(ctx context.Context, tenantID string) (int, error) {
+	var n int
+	var err error
+	if tenantID == "" {
+		err = s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM buckets WHERE deleted_at IS NULL`).Scan(&n)
+	} else {
+		err = s.db.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM buckets b
+			JOIN projects p ON b.project_id = p.id
+			WHERE p.tenant_id = ? AND b.deleted_at IS NULL`, tenantID).Scan(&n)
+	}
+	return n, err
+}
+
+// CountDocuments returns the number of non-deleted documents for a tenant.
+// If tenantID is empty, counts across all tenants.
+func (s *Store) CountDocuments(ctx context.Context, tenantID string) (int, error) {
+	var n int
+	var err error
+	if tenantID == "" {
+		err = s.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM documents WHERE deleted_at IS NULL`).Scan(&n)
+	} else {
+		err = s.db.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM documents d
+			JOIN buckets b ON d.bucket_id = b.id
+			JOIN projects p ON b.project_id = p.id
+			WHERE p.tenant_id = ? AND d.deleted_at IS NULL`, tenantID).Scan(&n)
+	}
+	return n, err
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 // ErrConflict is returned when a unique constraint is violated.

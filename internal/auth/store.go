@@ -101,6 +101,56 @@ func (s *Store) CountUsers(ctx context.Context) (int, error) {
 	return n, err
 }
 
+// ListUsers returns all non-deleted users for the given tenant, ordered by username.
+func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]*User, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, tenant_id, username, email, password_hash, user_type, is_active
+		FROM users
+		WHERE tenant_id = ? AND deleted_at IS NULL
+		ORDER BY username`,
+		tenantID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list users: %w", err)
+	}
+	defer rows.Close()
+
+	var users []*User
+	for rows.Next() {
+		var u User
+		var isActive int
+		if err := rows.Scan(&u.ID, &u.TenantID, &u.Username, &u.Email,
+			&u.PasswordHash, &u.UserType, &isActive); err != nil {
+			return nil, fmt.Errorf("scan user: %w", err)
+		}
+		u.IsActive = isActive == 1
+		users = append(users, &u)
+	}
+	return users, rows.Err()
+}
+
+// SetUserActive enables or disables a user account.
+func (s *Store) SetUserActive(ctx context.Context, id string, active bool) error {
+	val := 0
+	if active {
+		val = 1
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE users SET is_active = ? WHERE id = ? AND deleted_at IS NULL`,
+		val, id,
+	)
+	return err
+}
+
+// DeleteUser soft-deletes a user by ID.
+func (s *Store) DeleteUser(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE users SET deleted_at = datetime('now') WHERE id = ? AND deleted_at IS NULL`,
+		id,
+	)
+	return err
+}
+
 // ─── API keys ─────────────────────────────────────────────────────────────────
 
 // GetAPIKeyByHash fetches an API key row by its SHA-256 hash.
@@ -144,6 +194,41 @@ func (s *Store) CreateAPIKey(ctx context.Context, tenantID string, userID *strin
 		return nil, fmt.Errorf("create api key: %w", err)
 	}
 	return s.GetAPIKeyByHash(ctx, keyHash)
+}
+
+// ListAPIKeys returns all API keys for the given tenant, most recently created first.
+func (s *Store) ListAPIKeys(ctx context.Context, tenantID string) ([]*APIKey, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, tenant_id, user_id, name, key_hash, key_prefix, expires_at, revoked_at
+		FROM api_keys
+		WHERE tenant_id = ?
+		ORDER BY created_at DESC`,
+		tenantID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list api keys: %w", err)
+	}
+	defer rows.Close()
+
+	var keys []*APIKey
+	for rows.Next() {
+		var k APIKey
+		if err := rows.Scan(&k.ID, &k.TenantID, &k.UserID, &k.Name,
+			&k.KeyHash, &k.KeyPrefix, &k.ExpiresAt, &k.RevokedAt); err != nil {
+			return nil, fmt.Errorf("scan api key: %w", err)
+		}
+		keys = append(keys, &k)
+	}
+	return keys, rows.Err()
+}
+
+// RevokeAPIKey sets revoked_at to now for the given key ID.
+func (s *Store) RevokeAPIKey(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE api_keys SET revoked_at = datetime('now') WHERE id = ? AND revoked_at IS NULL`,
+		id,
+	)
+	return err
 }
 
 // TouchAPIKey updates last_used_at for a key. Errors are intentionally ignored
