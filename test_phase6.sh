@@ -26,6 +26,7 @@ BASE_URL="${1:-${TINYDM_URL:-http://localhost:8080}}"
 ADMIN_USER="${TINYDM_ADMIN_USER:-admin}"
 ADMIN_PASS="${TINYDM_ADMIN_PASS:-changeme}"
 TENANT_ID="${TINYDM_BOOTSTRAP_TENANT_ID:-default}"
+TENANT_NAME="${TINYDM_BOOTSTRAP_TENANT_NAME:-Default}"
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'
@@ -210,13 +211,13 @@ echo ""
 sc=$(_web GET "/admin/login")
 assert_eq "$sc" "200"             "GET /admin/login → 200"
 assert_contains "$(body)" "Sign in"    "Login page has 'Sign in' heading"
-assert_contains "$(body)" "tenant_id"  "Login page has tenant_id field"
+assert_contains "$(body)" "tenant_name" "Login page has tenant_name field"
 assert_contains "$(body)" "TinyDM"     "Login page shows branding"
 rm -f "$CURL_TMP"
 
 echo ""
 echo -e "  Testing empty-field validation…"
-sc=$(_web POST "/admin/login" -d "tenant_id=&username=&password=")
+sc=$(_web POST "/admin/login" -d "tenant_name=&username=&password=")
 assert_eq "$sc" "200" "POST with empty fields → 200 (stays on login page)"
 assert_contains "$(body)" "required" "Validation message shown for empty fields"
 rm -f "$CURL_TMP"
@@ -224,7 +225,7 @@ rm -f "$CURL_TMP"
 echo ""
 echo -e "  Testing wrong password…"
 sc=$(_web POST "/admin/login" \
-    -d "tenant_id=$TENANT_ID&username=$ADMIN_USER&password=definitely-wrong")
+    -d "tenant_name=$TENANT_NAME&username=$ADMIN_USER&password=definitely-wrong")
 assert_eq "$sc" "200" "POST with wrong password → 200 (stays on login page)"
 assert_contains "$(body)" "Invalid credentials" "Error message shown for bad password"
 rm -f "$CURL_TMP"
@@ -232,7 +233,7 @@ rm -f "$CURL_TMP"
 echo ""
 echo -e "  Testing unknown tenant…"
 sc=$(_web POST "/admin/login" \
-    -d "tenant_id=no-such-tenant&username=$ADMIN_USER&password=$ADMIN_PASS")
+    -d "tenant_name=no-such-tenant&username=$ADMIN_USER&password=$ADMIN_PASS")
 assert_eq "$sc" "200" "POST with unknown tenant → 200 (stays on login page)"
 assert_contains "$(body)" "Invalid credentials" "Error message shown for unknown tenant"
 rm -f "$CURL_TMP"
@@ -240,7 +241,7 @@ rm -f "$CURL_TMP"
 echo ""
 echo -e "  Logging in with correct credentials…"
 sc=$(_web POST "/admin/login" \
-    -d "tenant_id=$TENANT_ID&username=$ADMIN_USER&password=$ADMIN_PASS")
+    -d "tenant_name=$TENANT_NAME&username=$ADMIN_USER&password=$ADMIN_PASS")
 assert_eq "$sc" "302" "POST with correct credentials → 302 redirect"
 rm -f "$CURL_TMP"
 

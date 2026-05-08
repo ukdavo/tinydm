@@ -61,7 +61,7 @@ go run ./cmd/tinydm
 
 The server starts on `http://localhost:8080`. On first run a default tenant (`default`) and an admin user (`admin`) are created automatically.
 
-Open `http://localhost:8080/admin/` in a browser to reach the admin UI. Sign in with tenant ID `default`, username `admin`, and the password you set above.
+Open `http://localhost:8080/admin/` in a browser to reach the admin UI. Sign in with tenant name `Default`, username `admin`, and the password you set above.
 
 ### Run with Docker
 

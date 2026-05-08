@@ -317,6 +317,7 @@ input:focus, select:focus, textarea:focus {
 .login-card .btn { width: 100%; justify-content: center; margin-top: 8px; padding: 9px; }
 .login-logo { font-size: 20px; font-weight: 800; color: #2563eb; margin-bottom: 20px; }
 .login-logo span { color: #1e293b; }
+.field-hint { font-size: 11px; color: #94a3b8; margin: 2px 0 0; }
 
 /* ── Audit log specific ──────────────────────────────────────────────────── */
 .filter-bar {

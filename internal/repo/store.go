@@ -103,6 +103,16 @@ func (s *Store) GetTenant(ctx context.Context, id string) (*Tenant, error) {
 	return scanTenant(row)
 }
 
+// GetTenantByName looks up a tenant by its public display name (case-insensitive).
+// Returns nil, nil when no matching tenant exists.
+func (s *Store) GetTenantByName(ctx context.Context, name string) (*Tenant, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, name, description, created_at, updated_at
+		 FROM tenants WHERE lower(name) = lower(?) AND deleted_at IS NULL
+		 LIMIT 1`, name)
+	return scanTenant(row)
+}
+
 func (s *Store) ListTenants(ctx context.Context) ([]*Tenant, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, name, description, created_at, updated_at

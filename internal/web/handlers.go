@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -20,43 +21,74 @@ import (
 // ── Login / Logout ─────────────────────────────────────────────────────────────
 
 type loginData struct {
-	Error    string
-	TenantID string
-	Username string
+	Error             string
+	TenantName        string
+	Username          string
+	DefaultTenantName string // shown as a hint on the login page
+}
+
+// defaultTenantName returns the display name of the first tenant in the DB,
+// falling back to the bootstrap tenant name from config. Used to pre-populate
+// the login hint so users know what to type.
+func (h *Handler) defaultTenantName(ctx context.Context) string {
+	tenants, err := h.repo.ListTenants(ctx)
+	if err == nil && len(tenants) > 0 {
+		return tenants[0].Name
+	}
+	return h.cfg.BootstrapTenantName
 }
 
 func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
-	h.render(w, "login", loginData{})
+	h.render(w, "login", loginData{
+		DefaultTenantName: h.defaultTenantName(r.Context()),
+	})
 }
 
 func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
-	tenantID := r.FormValue("tenant_id")
+	tenantName := r.FormValue("tenant_name")
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 
-	if tenantID == "" || username == "" || password == "" {
+	defaultName := h.defaultTenantName(r.Context())
+
+	if tenantName == "" || username == "" || password == "" {
 		h.render(w, "login", loginData{
-			Error:    "All fields are required.",
-			TenantID: tenantID,
-			Username: username,
+			Error:             "All fields are required.",
+			TenantName:        tenantName,
+			Username:          username,
+			DefaultTenantName: defaultName,
 		})
 		return
 	}
 
-	user, err := h.auth.GetUserByUsername(r.Context(), tenantID, username)
+	// Resolve the public tenant name to an internal ID.
+	tenant, err := h.repo.GetTenantByName(r.Context(), tenantName)
+	if err != nil || tenant == nil {
+		h.render(w, "login", loginData{
+			Error:             "Invalid credentials.",
+			TenantName:        tenantName,
+			Username:          username,
+			DefaultTenantName: defaultName,
+		})
+		return
+	}
+
+	user, err := h.auth.GetUserByUsername(r.Context(), tenant.ID, username)
 	if err != nil || user == nil || !user.IsActive {
 		h.render(w, "login", loginData{
-			Error:    "Invalid credentials.",
-			TenantID: tenantID,
-			Username: username,
+			Error:             "Invalid credentials.",
+			TenantName:        tenantName,
+			Username:          username,
+			DefaultTenantName: defaultName,
 		})
 		return
 	}
 	if err := auth.CheckPassword(user.PasswordHash, password); err != nil {
 		h.render(w, "login", loginData{
-			Error:    "Invalid credentials.",
-			TenantID: tenantID,
-			Username: username,
+			Error:             "Invalid credentials.",
+			TenantName:        tenantName,
+			Username:          username,
+			DefaultTenantName: defaultName,
 		})
 		return
 	}
