@@ -23,7 +23,13 @@ import (
 	"tinydm/internal/web"
 )
 
-const version = "0.1.0"
+// Build metadata — overridden at link time via -ldflags.
+// go build -ldflags "-X main.version=v1.2.3 -X main.commit=abc1234 -X main.buildDate=2026-01-01T00:00:00Z"
+var (
+	version   = "dev"
+	commit    = "unknown"
+	buildDate = "unknown"
+)
 
 const banner = `
  _____  _                   ____   __  __
@@ -43,7 +49,7 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 	slog.SetDefault(logger)
-	slog.Info("starting TinyDM", "version", version)
+	slog.Info("starting TinyDM", "version", version, "commit", commit, "built", buildDate)
 
 	// ── Config ────────────────────────────────────────────────────────────────
 	cfg, err := config.Load()
@@ -166,6 +172,6 @@ func handleHealth(database interface{ PingContext(context.Context) error }) http
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(code)
-		fmt.Fprintf(w, `{"status":%q,"version":%q}`, status, version)
+		fmt.Fprintf(w, `{"status":%q,"version":%q,"commit":%q}`, status, version, commit)
 	}
 }

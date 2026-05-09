@@ -133,7 +133,7 @@ Testing, security, packaging, and documentation.
 | 8.1 | Unit tests — auth, storage, metadata | ✅ | `auth/{password,token,rbac,context}_test.go`, `meta/extractor_test.go`, `storage/storage_test.go` |
 | 8.2 | Integration tests — full API flows | ✅ | `api/{server,auth,tenants,documents}_test.go` — full HTTP flows via `httptest.Server` |
 | 8.3 | Security review (auth, input validation, path traversal) | ✅ | 6 issues fixed; see `SECURITY.md` |
-| 8.4 | Cross-platform builds (macOS, Linux, Windows) | ⬜ | |
+| 8.4 | Cross-platform builds (macOS, Linux, Windows) | ✅ | `make build-all` (6 targets); `make dist` for archives; CI + release workflows in `.github/workflows/` |
 | 8.5 | PostgreSQL support (alternative to SQLite) | ⬜ | |
 | 8.6 | API documentation (OpenAPI / Swagger) | ⬜ | |
 | 8.7 | Deployment guide (binary, Docker, docker-compose) | ⬜ | |
