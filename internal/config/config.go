@@ -22,6 +22,7 @@ type Config struct {
 	// Authentication
 	JWTSecret        string // TINYDM_JWT_SECRET — must be set; no default
 	JWTExpiryMinutes int    // TINYDM_JWT_EXPIRY_MINUTES (default: 60)
+	SecureCookies    bool   // TINYDM_SECURE_COOKIES — set true when serving over HTTPS (default: false)
 
 	// Bootstrap — used only on the very first run when the DB has no users.
 	// Set all three to seed an initial admin; they are ignored thereafter.
@@ -41,6 +42,7 @@ func Load() (*Config, error) {
 		StoragePath:        getEnv("TINYDM_STORAGE_PATH", "data/content"),
 		JWTSecret:        getEnv("TINYDM_JWT_SECRET", ""),
 		JWTExpiryMinutes: getEnvInt("TINYDM_JWT_EXPIRY_MINUTES", 60),
+		SecureCookies:    getEnvBool("TINYDM_SECURE_COOKIES", false),
 
 		BootstrapTenantID:   getEnv("TINYDM_BOOTSTRAP_TENANT_ID", "default"),
 		BootstrapTenantName: getEnv("TINYDM_BOOTSTRAP_TENANT_NAME", "Default"),
@@ -73,6 +75,17 @@ func getEnvInt(key string, fallback int) int {
 		if i, err := strconv.Atoi(v); err == nil {
 			return i
 		}
+	}
+	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	v := os.Getenv(key)
+	switch v {
+	case "true", "1", "yes":
+		return true
+	case "false", "0", "no":
+		return false
 	}
 	return fallback
 }

@@ -135,27 +135,33 @@ func TestTenants_Delete(t *testing.T) {
 	tenant, _ := ts.seedAdminUser(t, "DeleteMe", "admin", "pass")
 	token := ts.login(t, tenant.ID, "admin", "pass")
 
-	// Create a second tenant to delete (can't delete the one we're authenticated against
-	// without losing access, but the API doesn't prevent it — test it directly).
-	var second map[string]any
-	ts.doJSON(t, http.MethodPost, "/api/v1/tenants",
-		map[string]string{"name": "Temp Tenant"},
-		bearer(token), &second)
-
-	secondID := second["id"].(string)
-
+	// Delete the user's own tenant — same-tenant check passes.
 	resp := ts.do(t, http.MethodDelete,
-		fmt.Sprintf("/api/v1/tenants/%s", secondID),
+		fmt.Sprintf("/api/v1/tenants/%s", tenant.ID),
 		nil, bearer(token))
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusNoContent)
 
 	// Confirm it is gone.
 	resp2 := ts.do(t, http.MethodGet,
-		fmt.Sprintf("/api/v1/tenants/%s", secondID),
+		fmt.Sprintf("/api/v1/tenants/%s", tenant.ID),
 		nil, bearer(token))
 	defer resp2.Body.Close()
 	assertStatus(t, resp2, http.StatusNotFound)
+}
+
+func TestTenants_Delete_CrossTenantBlocked(t *testing.T) {
+	ts := newTestServer(t)
+	tenantA, _ := ts.seedAdminUser(t, "Tenant A", "adminA", "pass")
+	tenantB, _ := ts.seedAdminUser(t, "Tenant B", "adminB", "pass")
+	tokenA := ts.login(t, tenantA.ID, "adminA", "pass")
+
+	// Admin of tenant A must not be able to delete tenant B.
+	resp := ts.do(t, http.MethodDelete,
+		fmt.Sprintf("/api/v1/tenants/%s", tenantB.ID),
+		nil, bearer(tokenA))
+	defer resp.Body.Close()
+	assertStatus(t, resp, http.StatusForbidden)
 }
 
 // ─── Project CRUD ─────────────────────────────────────────────────────────────

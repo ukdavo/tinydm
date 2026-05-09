@@ -44,6 +44,7 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 
 			r.Route("/tenants/{tenantID}", func(r chi.Router) {
 				r.Use(TenantCtx(repoStore))
+				r.Use(RequireSameTenant) // enforce tenant isolation
 
 				r.Get("/", tenantHandler.Get)
 				r.With(auth.RequireAdmin).Put("/", tenantHandler.Update)

@@ -181,6 +181,8 @@ func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode, // CSRF protection
+		Secure:   h.cfg.SecureCookies,  // set true behind HTTPS
 		MaxAge:   h.cfg.JWTExpiryMinutes * 60,
 	})
 	http.Redirect(w, r, "/admin/", http.StatusFound)

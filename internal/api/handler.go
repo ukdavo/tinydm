@@ -3,6 +3,7 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -25,8 +26,9 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 }
 
 // decode reads a JSON body from r into dst.
+// The body is capped at maxJSONBytes to prevent memory exhaustion.
 func decode(r *http.Request, dst any) error {
-	return json.NewDecoder(r.Body).Decode(dst)
+	return json.NewDecoder(io.LimitReader(r.Body, maxJSONBytes)).Decode(dst)
 }
 
 // ─── Pagination ───────────────────────────────────────────────────────────────

@@ -88,6 +88,9 @@ func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	bucket := bucketFromCtx(r)
 	p, _ := auth.PrincipalFromContext(r.Context())
 
+	// Hard cap on total upload size before touching the multipart parser.
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+
 	// Accept up to 32 MB in memory; remainder spills to temp files.
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		writeError(w, http.StatusBadRequest, "expected multipart/form-data")
@@ -105,22 +108,17 @@ func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = header.Filename
 	}
-	if name == "" {
-		writeError(w, http.StatusBadRequest, "file name could not be determined")
-		return
-	}
+	name = sanitizeFilename(name)
 
 	// Read a leading slice for content-type sniffing and metadata extraction,
 	// then seek back so the full file is stored.
+	// Always use stdlib detection — never trust the client-supplied Content-Type
+	// as it can be forged to misrepresent file types.
 	hdr := make([]byte, headerBytes)
 	n, _ := file.Read(hdr)
 	hdr = hdr[:n]
 
 	contentType := http.DetectContentType(hdr)
-	// Honour the client-supplied type if it's more specific than octet-stream.
-	if ct := header.Header.Get("Content-Type"); ct != "" && ct != "application/octet-stream" {
-		contentType = ct
-	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		writeError(w, http.StatusInternalServerError, "could not read file")
 		return
@@ -177,6 +175,9 @@ func (h *DocumentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	doc := documentFromCtx(r)
 	p, _ := auth.PrincipalFromContext(r.Context())
 
+	// Hard cap on total upload size before touching the multipart parser.
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		writeError(w, http.StatusBadRequest, "expected multipart/form-data")
 		return
@@ -187,6 +188,9 @@ func (h *DocumentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = doc.Name
 	}
+	if name != doc.Name {
+		name = sanitizeFilename(name)
+	}
 	contentType := doc.ContentType
 	size := doc.Size
 	checksum := doc.Checksum
@@ -194,7 +198,7 @@ func (h *DocumentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var metaProps map[string]string
 
 	// Replace content if a new file was supplied.
-	file, header, err := r.FormFile("file")
+	file, _, err := r.FormFile("file")
 	if err == nil {
 		defer file.Close()
 
@@ -202,10 +206,8 @@ func (h *DocumentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		n, _ := file.Read(hdr)
 		hdr = hdr[:n]
 
+		// Always detect from content — do not trust the client-supplied type.
 		ct := http.DetectContentType(hdr)
-		if hct := header.Header.Get("Content-Type"); hct != "" && hct != "application/octet-stream" {
-			ct = hct
-		}
 		if _, err := file.Seek(0, io.SeekStart); err != nil {
 			writeError(w, http.StatusInternalServerError, "could not read file")
 			return
