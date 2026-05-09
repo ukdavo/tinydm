@@ -130,7 +130,7 @@ Testing, security, packaging, and documentation.
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 8.1 | Unit tests — auth, storage, metadata | ⬜ | |
+| 8.1 | Unit tests — auth, storage, metadata | 🔄 | `auth/{password,token,rbac,context}_test.go`, `meta/extractor_test.go`, `storage/storage_test.go` — run `go test ./internal/auth/... ./internal/meta/... ./internal/storage/...` |
 | 8.2 | Integration tests — full API flows | ⬜ | |
 | 8.3 | Security review (auth, input validation, path traversal) | ⬜ | |
 | 8.4 | Cross-platform builds (macOS, Linux, Windows) | ⬜ | |
