@@ -23,6 +23,7 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 	tagHandler := NewTagHandler(repoStore)
 	propHandler := NewPropertyHandler(repoStore)
 	auditHandler := NewAuditHandler(auditStore)
+	userHandler := NewUserHandler(authStore)
 
 	r.Route("/api/v1", func(r chi.Router) {
 
@@ -50,6 +51,10 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 
 				// Audit log — admin only
 				r.With(auth.RequireAdmin).Get("/audit", auditHandler.List)
+
+				// Users & API keys — admin only
+				r.With(auth.RequireAdmin).Get("/users", userHandler.ListUsers)
+				r.With(auth.RequireAdmin).Get("/apikeys", userHandler.ListAPIKeys)
 
 				// Projects
 				r.Get("/projects", projectHandler.List)

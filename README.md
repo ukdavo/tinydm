@@ -2,7 +2,7 @@
 
 A simple, self-hosted document management system. Small footprint, easy to deploy, no external dependencies.
 
-> **Status:** Phases 1–6 complete. The full REST API, document versioning, tags, custom properties, automatic metadata extraction, an immutable audit log, and an HTMX admin web UI are all working.
+> **Status:** Phases 1–7 complete. The full REST API, document versioning, tags, custom properties, automatic metadata extraction, an immutable audit log, a document & bucket management UI, and an HTMX admin web UI are all working. All list endpoints support pagination.
 
 ---
 
@@ -15,14 +15,13 @@ A simple, self-hosted document management system. Small footprint, easy to deplo
 - **Tags** — add, remove, or filter documents by free-form tags
 - **Custom properties** — runtime-defined key/value metadata per document
 - **Automatic metadata extraction** — image dimensions (JPEG, PNG, GIF), PDF version string, Office container type (OOXML / OLE2) detected on upload
-- **Immutable audit log** — every mutating request recorded async; queryable by action (with `*` wildcard), principal, resource, and date range with pagination
+- **Immutable audit log** — every mutating request recorded async; queryable by action (with `*` wildcard), principal, resource, and date range
+- **Pagination** — all REST list endpoints return a `{"data":[…], "pagination":{…}}` envelope; use `?limit=` and `?offset=` to page through large result sets; the web UI renders prev/next pager bars on every list page
 - **Admin web UI** — HTMX-powered interface at `/admin/` covering tenants, projects, buckets, documents, users, API keys, and audit log; all assets embedded in the binary
+- **Document & bucket management UI** — inline bucket rename, document update, name search, tag filter, tag management, custom properties panel, system metadata display, version history and one-click restore
 - **Content-addressed storage** — SHA-256 keyed files; identical content is stored once
 - **Structured JSON logging**, health endpoint, graceful shutdown
 - Single binary · Docker · docker-compose
-
-**Coming in Phase 7**
-- Document & bucket management UI: bucket rename, document update, name search, tag filter, tag management, custom properties, metadata display, version history and restore
 
 ---
 
@@ -171,6 +170,56 @@ curl http://localhost:8080/api/v1/auth/me \
 
 ---
 
+### Pagination
+
+All list endpoints (`GET` requests that return collections) support offset-based pagination via query parameters and always return a JSON envelope:
+
+```json
+{
+  "data": [ … ],
+  "pagination": {
+    "total":    142,
+    "limit":    50,
+    "offset":   0,
+    "has_more": true
+  }
+}
+```
+
+| Parameter | Default | Max | Description |
+|---|---|---|---|
+| `limit` | `50` | `500` | Number of items to return |
+| `offset` | `0` | — | Number of items to skip |
+
+`pagination.total` always reflects the full unfiltered count for the current query, regardless of `limit`. `has_more` is `true` when `offset + limit < total`.
+
+**Example — walking through all documents in a bucket:**
+
+```bash
+# Page 1
+curl "$BASE/documents?limit=20&offset=0"
+
+# Page 2
+curl "$BASE/documents?limit=20&offset=20"
+
+# Page 3
+curl "$BASE/documents?limit=20&offset=40"
+```
+
+**Example — last page detection:**
+
+```bash
+resp=$(curl "$BASE/documents?limit=20&offset=40")
+has_more=$(echo "$resp" | jq '.pagination.has_more')
+# false → you are on the last page
+```
+
+Paginated endpoints: tenants, projects, buckets, documents (including `?q=` search and `?tag=` filter), document versions, users, API keys, and audit events.
+
+Tags and custom properties are not paginated — they return bare arrays/objects because the number of tags or properties per document is inherently small.
+
+---
+
 ### Endpoints
 
 #### System
@@ -185,7 +234,7 @@ curl http://localhost:8080/api/v1/auth/me \
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/v1/tenants` | List all tenants |
+| `GET` | `/api/v1/tenants` | List all tenants _(paginated)_ |
 | `POST` | `/api/v1/tenants` | Create a tenant |
 | `GET` | `/api/v1/tenants/{tenantID}` | Get a tenant |
 | `PUT` | `/api/v1/tenants/{tenantID}` | Update a tenant |
@@ -195,7 +244,7 @@ curl http://localhost:8080/api/v1/auth/me \
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/v1/tenants/{tenantID}/projects` | List projects |
+| `GET` | `/api/v1/tenants/{tenantID}/projects` | List projects _(paginated)_ |
 | `POST` | `/api/v1/tenants/{tenantID}/projects` | Create a project |
 | `GET` | `…/projects/{projectID}` | Get a project |
 | `PUT` | `…/projects/{projectID}` | Update a project |
@@ -205,7 +254,7 @@ curl http://localhost:8080/api/v1/auth/me \
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `…/projects/{projectID}/buckets` | List buckets |
+| `GET` | `…/projects/{projectID}/buckets` | List buckets _(paginated)_ |
 | `POST` | `…/projects/{projectID}/buckets` | Create a bucket |
 | `GET` | `…/buckets/{bucketID}` | Get a bucket |
 | `PUT` | `…/buckets/{bucketID}` | Update a bucket |
@@ -215,7 +264,7 @@ curl http://localhost:8080/api/v1/auth/me \
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `…/buckets/{bucketID}/documents` | List documents. Supports `?q=` (name search) and `?tag=` (tag filter) |
+| `GET` | `…/buckets/{bucketID}/documents` | List documents _(paginated)_. Supports `?q=` (name search) and `?tag=` (tag filter); both combinable with `?limit=`/`?offset=` |
 | `POST` | `…/buckets/{bucketID}/documents` | Upload a document (`multipart/form-data`, field `file`; optional field `name`) |
 | `GET` | `…/documents/{documentID}` | Get document metadata |
 | `PUT` | `…/documents/{documentID}` | Update name and/or replace content (snapshots current version first) |
@@ -226,8 +275,15 @@ curl http://localhost:8080/api/v1/auth/me \
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `…/documents/{documentID}/versions` | List all version snapshots (newest first) |
+| `GET` | `…/documents/{documentID}/versions` | List all version snapshots, newest first _(paginated)_ |
 | `POST` | `…/documents/{documentID}/versions/{versionID}/restore` | Restore a previous version (snapshots current state first) |
+
+#### Users & API keys _(admin only)_
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/tenants/{tenantID}/users` | List users _(paginated)_. Password hashes are never returned. |
+| `GET` | `/api/v1/tenants/{tenantID}/apikeys` | List API keys _(paginated)_. Key hashes and full key values are never returned; only the `key_prefix` is exposed. |
 
 #### Tags
 
@@ -253,7 +309,7 @@ Custom key/value metadata. Keys prefixed with `sys.` are reserved for system use
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/api/v1/tenants/{tenantID}/audit` | Required | Query audit events. Filters: `action` (supports `*` wildcard), `principal`, `resource`, `from`, `to`, `limit`, `offset` |
+| `GET` | `/api/v1/tenants/{tenantID}/audit` | Required | Query audit events _(paginated)_. Filters: `action` (supports `*` wildcard), `principal`, `resource`, `from`, `to`. Paging: `limit` (default 50, max 500), `offset` |
 
 ---
 
@@ -289,17 +345,24 @@ make clean        # remove bin/ and local *.db files
 
 ### Integration tests
 
-Shell scripts cover phases 4–6 end-to-end. Start the server first, then run any script:
+Shell scripts cover the full stack end-to-end. Use `run_tests.sh` to run all suites in one pass, or invoke individual scripts:
 
 ```bash
-./run.sh &
+./run.sh &        # start the server
 sleep 2
-./test_phase4.sh   # versioning, tags, properties, metadata extraction
-./test_phase5.sh   # audit log recording, filtering, pagination, access control
-./test_phase6.sh   # admin web UI — login, dashboard, CRUD, audit log viewer
+
+./run_tests.sh    # run all suites; prints a grand pass/fail summary
+
+# Or run individual suites:
+./test_phase4.sh        # versioning, tags, properties, metadata extraction
+./test_phase5.sh        # audit log recording, filtering, access control
+./test_phase6.sh        # admin web UI — login, dashboard, CRUD, audit log viewer
+./test_phase7.sh        # document & bucket management UI, search, tag filter, versions
+./test_pagination.sh    # REST API pagination — envelope shape, limit/offset, has_more,
+                        #   out-of-bounds offsets, default limits, search+filter envelopes
 ```
 
-All scripts require `curl` and `python3`, and clean up all created test data on completion. Each request is printed to the console with method, path, and HTTP status as it runs.
+All scripts accept an optional `BASE_URL` argument (default `http://localhost:8080`) and forward `TINYDM_ADMIN_USER` / `TINYDM_ADMIN_PASS` environment variables. They require `curl` and `python3`. Each request is printed to stderr with method, path, and HTTP status as it runs.
 
 ### Project structure
 
@@ -320,9 +383,12 @@ tinydm/
 │   └── web/            HTMX admin UI — handler, templates, static assets
 │       ├── static/     Embedded CSS
 │       └── templates/  Embedded HTML templates (base layout + 8 pages)
-├── test_phase4.sh      Phase 4 integration test script
-├── test_phase5.sh      Phase 5 integration test script
-├── test_phase6.sh      Phase 6 integration test script
+├── run_tests.sh        Run all integration test suites in one pass
+├── test_phase4.sh      Phase 4 integration tests — versioning, tags, properties, metadata
+├── test_phase5.sh      Phase 5 integration tests — audit log
+├── test_phase6.sh      Phase 6 integration tests — admin web UI
+├── test_phase7.sh      Phase 7 integration tests — document & bucket management UI
+├── test_pagination.sh  Pagination integration tests — envelope shape, limit/offset, has_more
 ├── Dockerfile
 ├── docker-compose.yml
 ├── Makefile
@@ -353,8 +419,10 @@ See [PLAN.md](./PLAN.md) for the full task-level breakdown.
 | 4 | Document versioning, tags, custom properties, metadata extraction | ✅ Done |
 | 5 | Audit log | ✅ Done |
 | 6 | Admin web UI (HTMX) | ✅ Done |
-| 7 | Document & bucket management UI — search, tags, properties, versions | ⬜ Next |
-| 8 | Hardening, tests, OpenAPI, release | ⬜ |
+| 7 | Document & bucket management UI — search, tags, properties, versions; REST + web UI pagination | ✅ Done |
+| 8 | Hardening, tests, OpenAPI, release | ⬜ Next |
+| — | Clustering — multi-node coordination, distributed locking, replicated storage | ⬜ Backlog |
+| — | Caching — response caching layer, cache invalidation strategy, TTL configuration | ⬜ Backlog |
 
 ---
 

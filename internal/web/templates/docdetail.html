@@ -56,16 +56,16 @@
 <div class="card" style="margin-bottom:16px;">
   <div class="card-header"><h2>Properties</h2></div>
   <div class="card-body">
-    {{if .UserProps}}
     <table style="width:100%;margin-bottom:14px;">
       <thead><tr><th style="width:35%">Key</th><th>Value</th><th></th></tr></thead>
       <tbody id="doc-props-body">
-        {{range .UserProps}}{{template "prop-row" .}}{{end}}
+        {{if .UserProps}}
+          {{range .UserProps}}{{template "prop-row" .}}{{end}}
+        {{else}}
+          <tr id="props-empty"><td colspan="3" class="muted" style="padding:10px 14px;">No custom properties yet.</td></tr>
+        {{end}}
       </tbody>
     </table>
-    {{else}}
-    <p class="muted" style="margin-bottom:12px;">No custom properties.</p>
-    {{end}}
     <!-- Add / update property -->
     <div class="edit-row-form">
       <div class="form-group">

@@ -60,6 +60,11 @@
     </table>
   </div>
 </div>
+<div id="audit-pagination">{{template "pagination" .Pager}}</div>
+{{end}}
+
+{{define "audit-pager-oob"}}
+<div id="audit-pagination" hx-swap-oob="true">{{template "pagination" .}}</div>
 {{end}}
 
 {{define "audit-row"}}

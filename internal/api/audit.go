@@ -33,6 +33,13 @@ func (h *AuditHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	// Clamp here so pagination metadata reflects the actual values used by the store.
+	if limit <= 0 || limit > audit.MaxLimit {
+		limit = audit.DefaultLimit
+	}
+	if offset < 0 {
+		offset = 0
+	}
 
 	f := audit.Filter{
 		TenantID:  tenant.ID,
@@ -45,7 +52,7 @@ func (h *AuditHandler) List(w http.ResponseWriter, r *http.Request) {
 		Offset:    offset,
 	}
 
-	events, err := h.store.List(r.Context(), f)
+	events, total, err := h.store.List(r.Context(), f)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -53,5 +60,5 @@ func (h *AuditHandler) List(w http.ResponseWriter, r *http.Request) {
 	if events == nil {
 		events = []*audit.Event{}
 	}
-	writeJSON(w, http.StatusOK, events)
+	writePaged(w, events, total, limit, offset)
 }

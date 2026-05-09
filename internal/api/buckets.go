@@ -22,7 +22,8 @@ func NewBucketHandler(store *repo.Store, authStore *auth.Store) *BucketHandler {
 // List handles GET /api/v1/tenants/{tenantID}/projects/{projectID}/buckets
 func (h *BucketHandler) List(w http.ResponseWriter, r *http.Request) {
 	project := projectFromCtx(r)
-	buckets, err := h.store.ListBuckets(r.Context(), project.ID)
+	page := pageParams(r)
+	buckets, total, err := h.store.ListBuckets(r.Context(), project.ID, page)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -30,7 +31,7 @@ func (h *BucketHandler) List(w http.ResponseWriter, r *http.Request) {
 	if buckets == nil {
 		buckets = []*repo.Bucket{}
 	}
-	writeJSON(w, http.StatusOK, buckets)
+	writePaged(w, buckets, total, page.Limit, page.Offset)
 }
 
 // Create handles POST /api/v1/tenants/{tenantID}/projects/{projectID}/buckets

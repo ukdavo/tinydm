@@ -19,6 +19,75 @@ import (
 	"tinydm/internal/repo"
 )
 
+// ── Pagination helpers ────────────────────────────────────────────────────────
+
+// WebPagination carries everything a template needs to render a pagination bar.
+type WebPagination struct {
+	Page       int    // current page (1-indexed)
+	Limit      int    // items per page
+	Total      int    // total matching rows
+	TotalPages int    // ceil(Total/Limit)
+	HasPrev    bool
+	HasNext    bool
+	PrevPage   int
+	NextPage   int
+	ExtraQuery string // "&q=foo&tag=bar" — preserves active filters in pager links
+}
+
+// parsePage reads ?page= from the request (1-indexed, default 1).
+// Also reads ?limit= clamped to [1, 200], default 50.
+func parsePage(r *http.Request) (page, limit int) {
+	page, _ = strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	limit, _ = strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	return page, limit
+}
+
+// newWebPagination builds a WebPagination from total item count, current page,
+// page size, and any extra query-string pairs (e.g. "&q=foo") for filter links.
+func newWebPagination(total, page, limit int, extraQuery string) WebPagination {
+	if limit <= 0 {
+		limit = 50
+	}
+	totalPages := (total + limit - 1) / limit
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	if page < 1 {
+		page = 1
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+	return WebPagination{
+		Page:       page,
+		Limit:      limit,
+		Total:      total,
+		TotalPages: totalPages,
+		HasPrev:    page > 1,
+		HasNext:    page < totalPages,
+		PrevPage:   page - 1,
+		NextPage:   page + 1,
+		ExtraQuery: extraQuery,
+	}
+}
+
+// pageOffset converts a 1-indexed page + limit into a SQL OFFSET value.
+func pageOffset(page, limit int) int {
+	if page < 1 {
+		page = 1
+	}
+	return (page - 1) * limit
+}
+
 // ── Login / Logout ─────────────────────────────────────────────────────────────
 
 type loginData struct {
@@ -32,7 +101,7 @@ type loginData struct {
 // falling back to the bootstrap tenant name from config. Used to pre-populate
 // the login hint so users know what to type.
 func (h *Handler) defaultTenantName(ctx context.Context) string {
-	tenants, err := h.repo.ListTenants(ctx)
+	tenants, _, err := h.repo.ListTenants(ctx, repo.PageOpts{Limit: 1})
 	if err == nil && len(tenants) > 0 {
 		return tenants[0].Name
 	}
@@ -149,7 +218,7 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 	stats.Buckets, _ = h.repo.CountBuckets(r.Context(), tid)
 	stats.Documents, _ = h.repo.CountDocuments(r.Context(), tid)
 
-	recent, _ := h.audit.List(r.Context(), audit.Filter{
+	recent, _, _ := h.audit.List(r.Context(), audit.Filter{
 		TenantID: tid,
 		Limit:    10,
 	})
@@ -166,13 +235,16 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 type tenantsData struct {
 	basePage
 	Tenants []*repo.Tenant
+	Pager   WebPagination
 }
 
 func (h *Handler) tenants(w http.ResponseWriter, r *http.Request) {
-	tenants, _ := h.repo.ListTenants(r.Context())
+	page, limit := parsePage(r)
+	tenants, total, _ := h.repo.ListTenants(r.Context(), repo.PageOpts{Limit: limit, Offset: pageOffset(page, limit)})
 	h.render(w, "tenants", tenantsData{
 		basePage: h.base(r, "tenants"),
 		Tenants:  tenants,
+		Pager:    newWebPagination(total, page, limit, ""),
 	})
 }
 
@@ -206,6 +278,7 @@ type projectsData struct {
 	basePage
 	Tenant   *repo.Tenant
 	Projects []*repo.Project
+	Pager    WebPagination
 }
 
 func (h *Handler) projects(w http.ResponseWriter, r *http.Request) {
@@ -215,11 +288,13 @@ func (h *Handler) projects(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	projects, _ := h.repo.ListProjects(r.Context(), tenantID)
+	page, limit := parsePage(r)
+	projects, total, _ := h.repo.ListProjects(r.Context(), tenantID, repo.PageOpts{Limit: limit, Offset: pageOffset(page, limit)})
 	h.render(w, "projects", projectsData{
 		basePage: h.base(r, "projects"),
 		Tenant:   tenant,
 		Projects: projects,
+		Pager:    newWebPagination(total, page, limit, ""),
 	})
 }
 
@@ -263,6 +338,7 @@ type bucketsData struct {
 	Tenant  *repo.Tenant
 	Project *repo.Project
 	Buckets []bucketRow
+	Pager   WebPagination
 }
 
 func (h *Handler) buckets(w http.ResponseWriter, r *http.Request) {
@@ -280,7 +356,8 @@ func (h *Handler) buckets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	raw, _ := h.repo.ListBuckets(r.Context(), projectID)
+	page, limit := parsePage(r)
+	raw, total, _ := h.repo.ListBuckets(r.Context(), projectID, repo.PageOpts{Limit: limit, Offset: pageOffset(page, limit)})
 	var rows []bucketRow
 	for _, b := range raw {
 		n, _ := h.repo.CountDocumentsInBucket(r.Context(), b.ID)
@@ -292,6 +369,7 @@ func (h *Handler) buckets(w http.ResponseWriter, r *http.Request) {
 		Tenant:   tenant,
 		Project:  project,
 		Buckets:  rows,
+		Pager:    newWebPagination(total, page, limit, ""),
 	})
 }
 
@@ -330,6 +408,7 @@ type documentsData struct {
 	Project   *repo.Project
 	Bucket    *repo.Bucket
 	Documents []*repo.Document
+	Pager     WebPagination
 }
 
 func (h *Handler) documents(w http.ResponseWriter, r *http.Request) {
@@ -353,13 +432,15 @@ func (h *Handler) documents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	docs, _ := h.repo.ListDocuments(r.Context(), bucketID)
+	page, limit := parsePage(r)
+	docs, total, _ := h.repo.ListDocuments(r.Context(), bucketID, repo.PageOpts{Limit: limit, Offset: pageOffset(page, limit)})
 	h.render(w, "documents", documentsData{
 		basePage:  h.base(r, "documents"),
 		Tenant:    tenant,
 		Project:   project,
 		Bucket:    bucket,
 		Documents: docs,
+		Pager:     newWebPagination(total, page, limit, ""),
 	})
 }
 
@@ -450,14 +531,17 @@ func (h *Handler) downloadDocument(w http.ResponseWriter, r *http.Request) {
 type usersData struct {
 	basePage
 	Users []*auth.User
+	Pager WebPagination
 }
 
 func (h *Handler) users(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.PrincipalFromContext(r.Context())
-	users, _ := h.auth.ListUsers(r.Context(), p.TenantID)
+	page, limit := parsePage(r)
+	users, total, _ := h.auth.ListUsers(r.Context(), p.TenantID, limit, pageOffset(page, limit))
 	h.render(w, "users", usersData{
 		basePage: h.base(r, "users"),
 		Users:    users,
+		Pager:    newWebPagination(total, page, limit, ""),
 	})
 }
 
@@ -535,14 +619,17 @@ type apiKeysData struct {
 	basePage
 	Keys   []*auth.APIKey
 	NewKey string // only set immediately after creation
+	Pager  WebPagination
 }
 
 func (h *Handler) apiKeys(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.PrincipalFromContext(r.Context())
-	keys, _ := h.auth.ListAPIKeys(r.Context(), p.TenantID)
+	page, limit := parsePage(r)
+	keys, total, _ := h.auth.ListAPIKeys(r.Context(), p.TenantID, limit, pageOffset(page, limit))
 	h.render(w, "apikeys", apiKeysData{
 		basePage: h.base(r, "apikeys"),
 		Keys:     keys,
+		Pager:    newWebPagination(total, page, limit, ""),
 	})
 }
 
@@ -565,12 +652,13 @@ func (h *Handler) createAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return the full page so the new key can be displayed once.
-	keys, _ := h.auth.ListAPIKeys(r.Context(), p.TenantID)
+	// Return the full page so the new key can be displayed once (always page 1).
+	keys, total, _ := h.auth.ListAPIKeys(r.Context(), p.TenantID, 50, 0)
 	h.render(w, "apikeys", apiKeysData{
 		basePage: h.base(r, "apikeys"),
 		Keys:     keys,
 		NewKey:   plaintext,
+		Pager:    newWebPagination(total, 1, 50, ""),
 	})
 }
 
@@ -584,7 +672,7 @@ func (h *Handler) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Find and return the updated row.
-	keys, _ := h.auth.ListAPIKeys(r.Context(), p.TenantID)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), p.TenantID, 500, 0)
 	for _, k := range keys {
 		if k.ID == id {
 			h.renderPartial(w, "apikeys", "apikey-row", k)
@@ -599,17 +687,21 @@ func (h *Handler) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
 type auditData struct {
 	basePage
 	Events []*audit.Event
+	Pager  WebPagination
 }
 
 func (h *Handler) auditLog(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.PrincipalFromContext(r.Context())
-	events, _ := h.audit.List(r.Context(), audit.Filter{
+	page, limit := parsePage(r)
+	events, total, _ := h.audit.List(r.Context(), audit.Filter{
 		TenantID: p.TenantID,
-		Limit:    50,
+		Limit:    limit,
+		Offset:   pageOffset(page, limit),
 	})
 	h.render(w, "audit", auditData{
 		basePage: h.base(r, "audit"),
 		Events:   events,
+		Pager:    newWebPagination(total, page, limit, ""),
 	})
 }
 
@@ -663,11 +755,15 @@ func (h *Handler) documentRows(w http.ResponseWriter, r *http.Request) {
 	bucketID := chi.URLParam(r, "bucketID")
 	q := r.URL.Query().Get("q")
 	tag := r.URL.Query().Get("tag")
+	page, limit := parsePage(r)
+	opts := repo.PageOpts{Limit: limit, Offset: pageOffset(page, limit)}
 
 	var docs []*repo.Document
+	var total int
 	if tag != "" {
-		docs, _ = h.repo.ListDocumentsByTag(r.Context(), bucketID, tag)
+		docs, total, _ = h.repo.ListDocumentsByTag(r.Context(), bucketID, tag, opts)
 		if q != "" {
+			// Apply in-memory name filter on top of tag filter.
 			ql := strings.ToLower(q)
 			var filtered []*repo.Document
 			for _, d := range docs {
@@ -676,11 +772,12 @@ func (h *Handler) documentRows(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			docs = filtered
+			total = len(filtered) // approximate — tag-filtered page only
 		}
 	} else if q != "" {
-		docs, _ = h.repo.SearchDocuments(r.Context(), bucketID, q)
+		docs, total, _ = h.repo.SearchDocuments(r.Context(), bucketID, q, opts)
 	} else {
-		docs, _ = h.repo.ListDocuments(r.Context(), bucketID)
+		docs, total, _ = h.repo.ListDocuments(r.Context(), bucketID, opts)
 	}
 
 	t, ok := h.tmpls["documents"]
@@ -688,15 +785,33 @@ func (h *Handler) documentRows(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return
 	}
+
+	// Build extra query params for pagination links.
+	extra := ""
+	if q != "" {
+		extra += "&q=" + url.QueryEscape(q)
+	}
+	if tag != "" {
+		extra += "&tag=" + url.QueryEscape(tag)
+	}
+	pager := newWebPagination(total, page, limit, extra)
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	// Emit the rows.
 	if len(docs) == 0 {
 		fmt.Fprintf(w, `<tr><td colspan="6"><div class="empty-state"><p>No documents found.</p></div></td></tr>`)
-		return
-	}
-	for _, d := range docs {
-		if err := t.ExecuteTemplate(w, "document-row", d); err != nil {
-			slog.Error("document-row render error", "error", err)
+	} else {
+		for _, d := range docs {
+			if err := t.ExecuteTemplate(w, "document-row", d); err != nil {
+				slog.Error("document-row render error", "error", err)
+			}
 		}
+	}
+
+	// OOB swap: update the pagination bar without a full page reload.
+	if err := t.ExecuteTemplate(w, "docs-pager-oob", pager); err != nil {
+		slog.Error("docs-pager-oob render error", "error", err)
 	}
 }
 
@@ -840,7 +955,7 @@ func (h *Handler) buildDocDetailData(r *http.Request, doc *repo.Document) (docum
 		}
 	}
 
-	versions, _ := h.repo.ListDocumentVersions(r.Context(), doc.ID)
+	versions, _, _ := h.repo.ListDocumentVersions(r.Context(), doc.ID, repo.PageOpts{Limit: 500})
 
 	return documentDetailData{
 		basePage:  h.base(r, "documents"),
@@ -962,11 +1077,7 @@ func (h *Handler) restoreDocumentVersionWeb(w http.ResponseWriter, r *http.Reque
 func (h *Handler) auditEvents(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.PrincipalFromContext(r.Context())
 	q := r.URL.Query()
-
-	limit, _ := strconv.Atoi(q.Get("limit"))
-	if limit <= 0 {
-		limit = 50
-	}
+	page, limit := parsePage(r)
 
 	from := q.Get("from")
 	to := q.Get("to")
@@ -978,13 +1089,17 @@ func (h *Handler) auditEvents(w http.ResponseWriter, r *http.Request) {
 		to = strings.ReplaceAll(to, "T", " ")
 	}
 
-	events, _ := h.audit.List(r.Context(), audit.Filter{
+	action := q.Get("action")
+	principal := q.Get("principal")
+
+	events, total, _ := h.audit.List(r.Context(), audit.Filter{
 		TenantID:  p.TenantID,
-		Action:    q.Get("action"),
-		Principal: q.Get("principal"),
+		Action:    action,
+		Principal: principal,
 		From:      from,
 		To:        to,
 		Limit:     limit,
+		Offset:    pageOffset(page, limit),
 	})
 
 	t, ok := h.tmpls["audit"]
@@ -992,14 +1107,38 @@ func (h *Handler) auditEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return
 	}
+
+	// Build extra query string for pagination links (preserving filter state).
+	extra := ""
+	if action != "" {
+		extra += "&action=" + url.QueryEscape(action)
+	}
+	if principal != "" {
+		extra += "&principal=" + url.QueryEscape(principal)
+	}
+	if from != "" {
+		extra += "&from=" + url.QueryEscape(from)
+	}
+	if to != "" {
+		extra += "&to=" + url.QueryEscape(to)
+	}
+	pager := newWebPagination(total, page, limit, extra)
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	// Emit the rows.
 	if len(events) == 0 {
 		fmt.Fprintf(w, `<tr><td colspan="5"><div class="empty-state"><p>No events found.</p></div></td></tr>`)
-		return
-	}
-	for _, ev := range events {
-		if err := t.ExecuteTemplate(w, "audit-row", ev); err != nil {
-			slog.Error("audit-row render error", "error", err)
+	} else {
+		for _, ev := range events {
+			if err := t.ExecuteTemplate(w, "audit-row", ev); err != nil {
+				slog.Error("audit-row render error", "error", err)
+			}
 		}
+	}
+
+	// OOB swap: update the pagination bar without a full page reload.
+	if err := t.ExecuteTemplate(w, "audit-pager-oob", pager); err != nil {
+		slog.Error("audit-pager-oob render error", "error", err)
 	}
 }

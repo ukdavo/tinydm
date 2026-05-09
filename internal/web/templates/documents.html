@@ -92,6 +92,11 @@
     {{end}}
   </div>
 </div>
+<div id="docs-pagination">{{template "pagination" .Pager}}</div>
+{{end}}
+
+{{define "docs-pager-oob"}}
+<div id="docs-pagination" hx-swap-oob="true">{{template "pagination" .}}</div>
 {{end}}
 
 {{define "document-row"}}

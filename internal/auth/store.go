@@ -101,17 +101,35 @@ func (s *Store) CountUsers(ctx context.Context) (int, error) {
 	return n, err
 }
 
-// ListUsers returns all non-deleted users for the given tenant, ordered by username.
-func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]*User, error) {
+// ListUsers returns non-deleted users for the given tenant, ordered by username.
+// limit/offset control pagination; pass 0 for limit to use the default (50).
+// Returns the matched slice, the total count (unpaged), and any error.
+func (s *Store) ListUsers(ctx context.Context, tenantID string, limit, offset int) ([]*User, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM users WHERE tenant_id = ? AND deleted_at IS NULL`, tenantID,
+	).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count users: %w", err)
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, tenant_id, username, email, password_hash, user_type, is_active
 		FROM users
 		WHERE tenant_id = ? AND deleted_at IS NULL
-		ORDER BY username`,
-		tenantID,
+		ORDER BY username
+		LIMIT ? OFFSET ?`,
+		tenantID, limit, offset,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list users: %w", err)
+		return nil, 0, fmt.Errorf("list users: %w", err)
 	}
 	defer rows.Close()
 
@@ -121,12 +139,12 @@ func (s *Store) ListUsers(ctx context.Context, tenantID string) ([]*User, error)
 		var isActive int
 		if err := rows.Scan(&u.ID, &u.TenantID, &u.Username, &u.Email,
 			&u.PasswordHash, &u.UserType, &isActive); err != nil {
-			return nil, fmt.Errorf("scan user: %w", err)
+			return nil, 0, fmt.Errorf("scan user: %w", err)
 		}
 		u.IsActive = isActive == 1
 		users = append(users, &u)
 	}
-	return users, rows.Err()
+	return users, total, rows.Err()
 }
 
 // SetUserActive enables or disables a user account.
@@ -196,17 +214,35 @@ func (s *Store) CreateAPIKey(ctx context.Context, tenantID string, userID *strin
 	return s.GetAPIKeyByHash(ctx, keyHash)
 }
 
-// ListAPIKeys returns all API keys for the given tenant, most recently created first.
-func (s *Store) ListAPIKeys(ctx context.Context, tenantID string) ([]*APIKey, error) {
+// ListAPIKeys returns API keys for the given tenant, most recently created first.
+// limit/offset control pagination; pass 0 for limit to use the default (50).
+// Returns the matched slice, the total count (unpaged), and any error.
+func (s *Store) ListAPIKeys(ctx context.Context, tenantID string, limit, offset int) ([]*APIKey, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM api_keys WHERE tenant_id = ?`, tenantID,
+	).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count api keys: %w", err)
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, tenant_id, user_id, name, key_hash, key_prefix, expires_at, revoked_at
 		FROM api_keys
 		WHERE tenant_id = ?
-		ORDER BY created_at DESC`,
-		tenantID,
+		ORDER BY created_at DESC
+		LIMIT ? OFFSET ?`,
+		tenantID, limit, offset,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list api keys: %w", err)
+		return nil, 0, fmt.Errorf("list api keys: %w", err)
 	}
 	defer rows.Close()
 
@@ -215,11 +251,11 @@ func (s *Store) ListAPIKeys(ctx context.Context, tenantID string) ([]*APIKey, er
 		var k APIKey
 		if err := rows.Scan(&k.ID, &k.TenantID, &k.UserID, &k.Name,
 			&k.KeyHash, &k.KeyPrefix, &k.ExpiresAt, &k.RevokedAt); err != nil {
-			return nil, fmt.Errorf("scan api key: %w", err)
+			return nil, 0, fmt.Errorf("scan api key: %w", err)
 		}
 		keys = append(keys, &k)
 	}
-	return keys, rows.Err()
+	return keys, total, rows.Err()
 }
 
 // RevokeAPIKey sets revoked_at to now for the given key ID.

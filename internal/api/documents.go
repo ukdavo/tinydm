@@ -35,10 +35,11 @@ func NewDocumentHandler(store *repo.Store, authStore *auth.Store, storage storag
 // mutually exclusive; ?tag= takes precedence.
 func (h *DocumentHandler) List(w http.ResponseWriter, r *http.Request) {
 	bucket := bucketFromCtx(r)
+	page := pageParams(r)
 
 	// Tag filter.
 	if tag := r.URL.Query().Get("tag"); tag != "" {
-		docs, err := h.store.ListDocumentsByTag(r.Context(), bucket.ID, tag)
+		docs, total, err := h.store.ListDocumentsByTag(r.Context(), bucket.ID, tag, page)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal error")
 			return
@@ -46,13 +47,13 @@ func (h *DocumentHandler) List(w http.ResponseWriter, r *http.Request) {
 		if docs == nil {
 			docs = []*repo.Document{}
 		}
-		writeJSON(w, http.StatusOK, docs)
+		writePaged(w, docs, total, page.Limit, page.Offset)
 		return
 	}
 
 	// Name search.
 	if q := r.URL.Query().Get("q"); q != "" {
-		docs, err := h.store.SearchDocuments(r.Context(), bucket.ID, q)
+		docs, total, err := h.store.SearchDocuments(r.Context(), bucket.ID, q, page)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal error")
 			return
@@ -60,11 +61,11 @@ func (h *DocumentHandler) List(w http.ResponseWriter, r *http.Request) {
 		if docs == nil {
 			docs = []*repo.Document{}
 		}
-		writeJSON(w, http.StatusOK, docs)
+		writePaged(w, docs, total, page.Limit, page.Offset)
 		return
 	}
 
-	docs, err := h.store.ListDocuments(r.Context(), bucket.ID)
+	docs, total, err := h.store.ListDocuments(r.Context(), bucket.ID, page)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -72,7 +73,7 @@ func (h *DocumentHandler) List(w http.ResponseWriter, r *http.Request) {
 	if docs == nil {
 		docs = []*repo.Document{}
 	}
-	writeJSON(w, http.StatusOK, docs)
+	writePaged(w, docs, total, page.Limit, page.Offset)
 }
 
 // Get handles GET /.../{bucketID}/documents/{documentID}
@@ -249,7 +250,8 @@ func (h *DocumentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 // ListVersions handles GET /.../{documentID}/versions
 func (h *DocumentHandler) ListVersions(w http.ResponseWriter, r *http.Request) {
 	doc := documentFromCtx(r)
-	versions, err := h.store.ListDocumentVersions(r.Context(), doc.ID)
+	page := pageParams(r)
+	versions, total, err := h.store.ListDocumentVersions(r.Context(), doc.ID, page)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -257,7 +259,7 @@ func (h *DocumentHandler) ListVersions(w http.ResponseWriter, r *http.Request) {
 	if versions == nil {
 		versions = []*repo.DocumentVersion{}
 	}
-	writeJSON(w, http.StatusOK, versions)
+	writePaged(w, versions, total, page.Limit, page.Offset)
 }
 
 // RestoreVersion handles POST /.../{documentID}/versions/{versionID}/restore

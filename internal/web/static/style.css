@@ -358,6 +358,12 @@ input:focus, select:focus, textarea:focus {
 .edit-row-form .form-group { margin: 0; }
 .edit-row-form .form-group input { min-width: 120px; }
 
+/* ── Pagination ──────────────────────────────────────────────────────────── */
+.pagination { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 4px; gap: 12px; flex-wrap: wrap; }
+.pagination-info { font-size: 12px; color: #94a3b8; }
+.pagination-links { display: flex; gap: 6px; }
+.pagination .btn.disabled { opacity: .4; pointer-events: none; cursor: default; }
+
 /* ── Utility ─────────────────────────────────────────────────────────────── */
 .mt-4 { margin-top: 4px; }
 .mt-8 { margin-top: 8px; }

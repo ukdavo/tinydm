@@ -192,7 +192,9 @@ _sc_bearer() {
 }
 
 jfield() { python3 -c "import sys,json; print(json.load(sys.stdin)$1)" 2>/dev/null; }
-jlen()   { python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null; }
+# Envelope-aware helpers: unwrap {"data":[...]} paginated responses automatically.
+jlen()  { python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d['data'] if isinstance(d,dict) and 'data' in d else d))" 2>/dev/null; }
+jdata() { python3 -c "import sys,json; d=json.load(sys.stdin); import json as j; print(j.dumps(d['data'] if isinstance(d,dict) and 'data' in d else d))" 2>/dev/null; }
 
 # Helper: query the audit log.  Pass optional query string, e.g. "?action=foo".
 audit() { _get "/api/v1/tenants/$TENANT_ID/audit$1"; }
@@ -372,7 +374,8 @@ assert_ge "$(echo "$events" | jlen)" "1" \
 
 principals=$(echo "$events" | python3 -c "
 import sys, json
-events = json.load(sys.stdin)
+d = json.load(sys.stdin)
+events = d['data'] if isinstance(d, dict) and 'data' in d else d
 others = [e['principal'] for e in events if e['principal'] != '$ADMIN_USER']
 print(','.join(others) if others else 'ok')
 ")
@@ -382,8 +385,8 @@ assert_eq "$principals" "ok" \
 echo ""
 echo -e "  Querying events for an unknown principal…"
 events=$(audit "?principal=no-such-user-xyz")
-assert_eq "$events" "[]" \
-    "Unknown principal returns empty array"
+assert_eq "$(echo "$events" | jlen)" "0" \
+    "Unknown principal returns empty data array"
 
 # ─────────────────────────────────────────────────────────────────────────────
 section "5.5 — Filter by resource"
@@ -396,7 +399,8 @@ assert_ge "$(echo "$events" | jlen)" "1" \
 
 check=$(echo "$events" | python3 -c "
 import sys, json
-events = json.load(sys.stdin)
+d = json.load(sys.stdin)
+events = d['data'] if isinstance(d, dict) and 'data' in d else d
 bad = [e['resource'] for e in events if e['resource'] != '$DOC_A']
 print(','.join(bad) if bad else 'ok')
 ")
@@ -406,8 +410,8 @@ assert_eq "$check" "ok" \
 echo ""
 echo -e "  Querying events for an unknown resource…"
 events=$(audit "?resource=no-such-resource-xyz")
-assert_eq "$events" "[]" \
-    "Unknown resource returns empty array"
+assert_eq "$(echo "$events" | jlen)" "0" \
+    "Unknown resource returns empty data array"
 
 # ─────────────────────────────────────────────────────────────────────────────
 section "5.6 — Filter by action (exact match)"
@@ -420,7 +424,8 @@ assert_ge "$(echo "$events" | jlen)" "1" \
 
 check=$(echo "$events" | python3 -c "
 import sys, json
-events = json.load(sys.stdin)
+d = json.load(sys.stdin)
+events = d['data'] if isinstance(d, dict) and 'data' in d else d
 bad = [e['action'] for e in events if e['action'] != 'document.create']
 print(','.join(bad) if bad else 'ok')
 ")
@@ -430,8 +435,8 @@ assert_eq "$check" "ok" \
 echo ""
 echo -e "  Querying an action that does not exist…"
 events=$(audit "?action=no.such.action")
-assert_eq "$events" "[]" \
-    "Unknown action returns empty array"
+assert_eq "$(echo "$events" | jlen)" "0" \
+    "Unknown action returns empty data array"
 
 # ─────────────────────────────────────────────────────────────────────────────
 section "5.7 — Filter by action (wildcard *)"
@@ -444,7 +449,8 @@ assert_ge "$(echo "$events" | jlen)" "3" \
 
 check=$(echo "$events" | python3 -c "
 import sys, json
-events = json.load(sys.stdin)
+d = json.load(sys.stdin)
+events = d['data'] if isinstance(d, dict) and 'data' in d else d
 bad = [e['action'] for e in events if not e['action'].startswith('document.')]
 print(','.join(bad) if bad else 'ok')
 ")
@@ -485,7 +491,7 @@ echo -e "  Querying with to= set to year 2000 (should return nothing from this r
 PAST_FROM=$(python3 -c "import urllib.parse; print(urllib.parse.quote('2000-01-01 00:00:00'))")
 PAST_TO=$(python3 -c "import urllib.parse; print(urllib.parse.quote('2000-12-31 23:59:59'))")
 events=$(audit "?from=$PAST_FROM&to=$PAST_TO")
-assert_eq "$events" "[]" \
+assert_eq "$(echo "$events" | jlen)" "0" \
     "Date range confined to year 2000 returns no events from this test run"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -509,8 +515,8 @@ if [[ "$TOTAL" -ge 3 ]]; then
     assert_ge "$(echo "$page2" | jlen)" "1" \
         "offset=2 returns at least 1 more event"
 
-    id1=$(echo "$page1" | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
-    id2=$(echo "$page2" | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
+    id1=$(echo "$page1" | jdata | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
+    id2=$(echo "$page2" | jdata | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
     if [[ "$id1" != "$id2" ]]; then
         pass "Page 1 and page 2 return different events (no overlap)"
     else
@@ -523,8 +529,8 @@ fi
 echo ""
 echo -e "  Fetching with offset=9999 (beyond total)…"
 events=$(audit "?limit=10&offset=9999")
-assert_eq "$events" "[]" \
-    "offset beyond total returns empty array"
+assert_eq "$(echo "$events" | jlen)" "0" \
+    "offset beyond total returns empty data array"
 
 echo ""
 echo -e "  Fetching with limit=1…"
@@ -572,7 +578,7 @@ section "5.11 — Event shape validation"
 echo ""
 echo -e "  Fetching one event and checking all required fields are present…"
 event=$(audit "?limit=1" \
-    | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin)[0]))" 2>/dev/null || true)
+    | python3 -c "import sys,json; d=json.load(sys.stdin); arr=d['data'] if isinstance(d,dict) and 'data' in d else d; print(json.dumps(arr[0]))" 2>/dev/null || true)
 if [[ -n "$event" ]]; then
     info "Sample: $event"
     echo ""

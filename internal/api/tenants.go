@@ -21,7 +21,8 @@ func NewTenantHandler(store *repo.Store, authStore *auth.Store) *TenantHandler {
 
 // List handles GET /api/v1/tenants
 func (h *TenantHandler) List(w http.ResponseWriter, r *http.Request) {
-	tenants, err := h.store.ListTenants(r.Context())
+	page := pageParams(r)
+	tenants, total, err := h.store.ListTenants(r.Context(), page)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -29,7 +30,7 @@ func (h *TenantHandler) List(w http.ResponseWriter, r *http.Request) {
 	if tenants == nil {
 		tenants = []*repo.Tenant{}
 	}
-	writeJSON(w, http.StatusOK, tenants)
+	writePaged(w, tenants, total, page.Limit, page.Offset)
 }
 
 // Create handles POST /api/v1/tenants

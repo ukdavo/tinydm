@@ -82,9 +82,11 @@ _sc_del()  { curl -s -o /dev/null -w "%{http_code}" -X DELETE ${AUTH_ARGS[@]+"${
 _sc_put()  { curl -s -o /dev/null -w "%{http_code}" -X PUT ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"} \
                   -H "Content-Type: application/json" -d "$2" "$BASE_URL$1"; }
 
-# Extract a field from a JSON string piped to stdin.
+# Extract a field from a JSON string piped to stdin (single-object responses).
 jfield() { python3 -c "import sys,json; print(json.load(sys.stdin)$1)" 2>/dev/null; }
-jlen()   { python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null; }
+# Envelope-aware helpers: unwrap {"data":[...]} paginated responses automatically.
+jlen()  { python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d['data'] if isinstance(d,dict) and 'data' in d else d))" 2>/dev/null; }
+jdata() { python3 -c "import sys,json; d=json.load(sys.stdin); import json as j; print(j.dumps(d['data'] if isinstance(d,dict) and 'data' in d else d))" 2>/dev/null; }
 
 # ── Prerequisites ─────────────────────────────────────────────────────────────
 echo -e "\n${BOLD}TinyDM — Phase 4 Integration Tests${NC}"
@@ -193,8 +195,8 @@ versions=$(_get "$DOCS/$DOC_ID/versions")
 assert_eq "$(echo "$versions" | jlen)" "1" \
     "One version snapshot exists after update"
 
-V1_SNAP_ID=$(echo "$versions" | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
-assert_eq "$(echo "$versions" | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['version'])")" "1" \
+V1_SNAP_ID=$(echo "$versions" | jdata | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
+assert_eq "$(echo "$versions" | jdata | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['version'])")" "1" \
     "Snapshot records version number 1"
 
 # Verify current content is v2 before restoring
@@ -245,8 +247,8 @@ assert_contains "$filtered" "$TDOC" \
     "?tag=draft filter returns the tagged document"
 
 filtered=$(_get "$DOCS?tag=no-such-tag-xyz")
-assert_eq "$filtered" "[]" \
-    "?tag= with no matches returns empty array"
+assert_eq "$(echo "$filtered" | jlen)" "0" \
+    "?tag= with no matches returns empty data array"
 
 # Remove one tag
 assert_eq "$(_sc_del "$DOCS/$TDOC/tags/urgent")" "204" \

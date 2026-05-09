@@ -71,7 +71,8 @@ type Filter struct {
 }
 
 // List returns audit events for the given tenant, newest first.
-func (s *Store) List(ctx context.Context, f Filter) ([]*Event, error) {
+// It also returns the total number of matching events (before limit/offset).
+func (s *Store) List(ctx context.Context, f Filter) ([]*Event, int, error) {
 	limit := f.Limit
 	if limit <= 0 || limit > MaxLimit {
 		limit = DefaultLimit
@@ -90,7 +91,6 @@ func (s *Store) List(ctx context.Context, f Filter) ([]*Event, error) {
 	}
 	if f.Action != "" {
 		if strings.HasSuffix(f.Action, "*") {
-			// Prefix / namespace match: "document.*" → LIKE 'document.%'
 			prefix := strings.TrimSuffix(f.Action, "*")
 			where = append(where, "action LIKE ?")
 			args = append(args, prefix+"%")
@@ -112,16 +112,28 @@ func (s *Store) List(ctx context.Context, f Filter) ([]*Event, error) {
 		args = append(args, f.To)
 	}
 
+	whereClause := strings.Join(where, " AND ")
+
+	// Total count (for pagination metadata) — same predicates, no limit/offset.
+	var total int
+	countArgs := make([]any, len(args))
+	copy(countArgs, args)
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM audit_log WHERE `+whereClause, countArgs...,
+	).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count audit: %w", err)
+	}
+
 	query := `SELECT id, tenant_id, principal, action, resource, detail, created_at
 	          FROM audit_log
-	          WHERE ` + strings.Join(where, " AND ") + `
+	          WHERE ` + whereClause + `
 	          ORDER BY created_at DESC
 	          LIMIT ? OFFSET ?`
 	args = append(args, limit, offset)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list audit: %w", err)
+		return nil, 0, fmt.Errorf("list audit: %w", err)
 	}
 	defer rows.Close()
 
@@ -130,9 +142,9 @@ func (s *Store) List(ctx context.Context, f Filter) ([]*Event, error) {
 		var e Event
 		if err := rows.Scan(&e.ID, &e.TenantID, &e.Principal,
 			&e.Action, &e.Resource, &e.Detail, &e.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan audit event: %w", err)
+			return nil, 0, fmt.Errorf("scan audit event: %w", err)
 		}
 		out = append(out, &e)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }

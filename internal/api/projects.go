@@ -22,7 +22,8 @@ func NewProjectHandler(store *repo.Store, authStore *auth.Store) *ProjectHandler
 // List handles GET /api/v1/tenants/{tenantID}/projects
 func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
 	tenant := tenantFromCtx(r)
-	projects, err := h.store.ListProjects(r.Context(), tenant.ID)
+	page := pageParams(r)
+	projects, total, err := h.store.ListProjects(r.Context(), tenant.ID, page)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -30,7 +31,7 @@ func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
 	if projects == nil {
 		projects = []*repo.Project{}
 	}
-	writeJSON(w, http.StatusOK, projects)
+	writePaged(w, projects, total, page.Limit, page.Offset)
 }
 
 // Create handles POST /api/v1/tenants/{tenantID}/projects

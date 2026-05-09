@@ -64,3 +64,24 @@
 </body>
 </html>
 {{end}}
+
+{{/* ── Shared pagination bar ───────────────────────────────────────────────── */}}
+{{define "pagination"}}
+{{if gt .TotalPages 1}}
+<nav class="pagination" aria-label="Pagination">
+  <span class="pagination-info">{{.Total}} total · page {{.Page}} of {{.TotalPages}}</span>
+  <div class="pagination-links">
+    {{if .HasPrev}}
+      <a class="btn btn-ghost btn-sm" href="?page={{.PrevPage}}&limit={{.Limit}}{{.ExtraQuery}}">← Prev</a>
+    {{else}}
+      <span class="btn btn-ghost btn-sm disabled">← Prev</span>
+    {{end}}
+    {{if .HasNext}}
+      <a class="btn btn-ghost btn-sm" href="?page={{.NextPage}}&limit={{.Limit}}{{.ExtraQuery}}">Next →</a>
+    {{else}}
+      <span class="btn btn-ghost btn-sm disabled">Next →</span>
+    {{end}}
+  </div>
+</nav>
+{{end}}
+{{end}}

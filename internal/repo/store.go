@@ -83,6 +83,33 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
+// ─── Pagination ───────────────────────────────────────────────────────────────
+
+const (
+	DefaultPageLimit = 50
+	MaxPageLimit     = 500
+)
+
+// PageOpts controls limit/offset pagination for list queries.
+type PageOpts struct {
+	Limit  int
+	Offset int
+}
+
+// validated clamps Limit and Offset to safe values.
+func (p PageOpts) validated() PageOpts {
+	if p.Limit <= 0 {
+		p.Limit = DefaultPageLimit
+	}
+	if p.Limit > MaxPageLimit {
+		p.Limit = MaxPageLimit
+	}
+	if p.Offset < 0 {
+		p.Offset = 0
+	}
+	return p
+}
+
 // ─── Tenants ──────────────────────────────────────────────────────────────────
 
 func (s *Store) CreateTenant(ctx context.Context, name, description string) (*Tenant, error) {
@@ -113,23 +140,30 @@ func (s *Store) GetTenantByName(ctx context.Context, name string) (*Tenant, erro
 	return scanTenant(row)
 }
 
-func (s *Store) ListTenants(ctx context.Context) ([]*Tenant, error) {
+func (s *Store) ListTenants(ctx context.Context, page PageOpts) ([]*Tenant, int, error) {
+	page = page.validated()
+	var total int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM tenants WHERE deleted_at IS NULL`).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count tenants: %w", err)
+	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, name, description, created_at, updated_at
-		 FROM tenants WHERE deleted_at IS NULL ORDER BY name`)
+		 FROM tenants WHERE deleted_at IS NULL ORDER BY name
+		 LIMIT ? OFFSET ?`, page.Limit, page.Offset)
 	if err != nil {
-		return nil, fmt.Errorf("list tenants: %w", err)
+		return nil, 0, fmt.Errorf("list tenants: %w", err)
 	}
 	defer rows.Close()
 	var out []*Tenant
 	for rows.Next() {
 		var t Tenant
 		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.CreatedAt, &t.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan tenant: %w", err)
+			return nil, 0, fmt.Errorf("scan tenant: %w", err)
 		}
 		out = append(out, &t)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 func (s *Store) UpdateTenant(ctx context.Context, id, name, description string) (*Tenant, error) {
@@ -169,23 +203,30 @@ func (s *Store) GetProject(ctx context.Context, id string) (*Project, error) {
 	return scanProject(row)
 }
 
-func (s *Store) ListProjects(ctx context.Context, tenantID string) ([]*Project, error) {
+func (s *Store) ListProjects(ctx context.Context, tenantID string, page PageOpts) ([]*Project, int, error) {
+	page = page.validated()
+	var total int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM projects WHERE tenant_id=? AND deleted_at IS NULL`, tenantID).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count projects: %w", err)
+	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, tenant_id, name, description, created_at, updated_at
-		 FROM projects WHERE tenant_id=? AND deleted_at IS NULL ORDER BY name`, tenantID)
+		 FROM projects WHERE tenant_id=? AND deleted_at IS NULL ORDER BY name
+		 LIMIT ? OFFSET ?`, tenantID, page.Limit, page.Offset)
 	if err != nil {
-		return nil, fmt.Errorf("list projects: %w", err)
+		return nil, 0, fmt.Errorf("list projects: %w", err)
 	}
 	defer rows.Close()
 	var out []*Project
 	for rows.Next() {
 		var p Project
 		if err := rows.Scan(&p.ID, &p.TenantID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan project: %w", err)
+			return nil, 0, fmt.Errorf("scan project: %w", err)
 		}
 		out = append(out, &p)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 func (s *Store) UpdateProject(ctx context.Context, id, name, description string) (*Project, error) {
@@ -225,23 +266,30 @@ func (s *Store) GetBucket(ctx context.Context, id string) (*Bucket, error) {
 	return scanBucket(row)
 }
 
-func (s *Store) ListBuckets(ctx context.Context, projectID string) ([]*Bucket, error) {
+func (s *Store) ListBuckets(ctx context.Context, projectID string, page PageOpts) ([]*Bucket, int, error) {
+	page = page.validated()
+	var total int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM buckets WHERE project_id=? AND deleted_at IS NULL`, projectID).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count buckets: %w", err)
+	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, project_id, name, description, created_at, updated_at
-		 FROM buckets WHERE project_id=? AND deleted_at IS NULL ORDER BY name`, projectID)
+		 FROM buckets WHERE project_id=? AND deleted_at IS NULL ORDER BY name
+		 LIMIT ? OFFSET ?`, projectID, page.Limit, page.Offset)
 	if err != nil {
-		return nil, fmt.Errorf("list buckets: %w", err)
+		return nil, 0, fmt.Errorf("list buckets: %w", err)
 	}
 	defer rows.Close()
 	var out []*Bucket
 	for rows.Next() {
 		var b Bucket
 		if err := rows.Scan(&b.ID, &b.ProjectID, &b.Name, &b.Description, &b.CreatedAt, &b.UpdatedAt); err != nil {
-			return nil, fmt.Errorf("scan bucket: %w", err)
+			return nil, 0, fmt.Errorf("scan bucket: %w", err)
 		}
 		out = append(out, &b)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 func (s *Store) UpdateBucket(ctx context.Context, id, name, description string) (*Bucket, error) {
@@ -282,27 +330,45 @@ func (s *Store) GetDocument(ctx context.Context, id string) (*Document, error) {
 	return scanDocument(row)
 }
 
-func (s *Store) ListDocuments(ctx context.Context, bucketID string) ([]*Document, error) {
+func (s *Store) ListDocuments(ctx context.Context, bucketID string, page PageOpts) ([]*Document, int, error) {
+	page = page.validated()
+	var total int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM documents WHERE bucket_id=? AND deleted_at IS NULL`, bucketID).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count documents: %w", err)
+	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, bucket_id, name, content_type, size, checksum, storage_key, version, created_by, created_at, updated_at
-		 FROM documents WHERE bucket_id=? AND deleted_at IS NULL ORDER BY name`, bucketID)
+		 FROM documents WHERE bucket_id=? AND deleted_at IS NULL ORDER BY name
+		 LIMIT ? OFFSET ?`, bucketID, page.Limit, page.Offset)
 	if err != nil {
-		return nil, fmt.Errorf("list documents: %w", err)
+		return nil, 0, fmt.Errorf("list documents: %w", err)
 	}
 	defer rows.Close()
-	return scanDocuments(rows)
+	docs, err := scanDocuments(rows)
+	return docs, total, err
 }
 
-func (s *Store) SearchDocuments(ctx context.Context, bucketID, query string) ([]*Document, error) {
+func (s *Store) SearchDocuments(ctx context.Context, bucketID, query string, page PageOpts) ([]*Document, int, error) {
+	page = page.validated()
+	pattern := "%" + query + "%"
+	var total int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM documents WHERE bucket_id=? AND name LIKE ? AND deleted_at IS NULL`,
+		bucketID, pattern).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count search documents: %w", err)
+	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, bucket_id, name, content_type, size, checksum, storage_key, version, created_by, created_at, updated_at
-		 FROM documents WHERE bucket_id=? AND name LIKE ? AND deleted_at IS NULL ORDER BY name`,
-		bucketID, "%"+query+"%")
+		 FROM documents WHERE bucket_id=? AND name LIKE ? AND deleted_at IS NULL ORDER BY name
+		 LIMIT ? OFFSET ?`,
+		bucketID, pattern, page.Limit, page.Offset)
 	if err != nil {
-		return nil, fmt.Errorf("search documents: %w", err)
+		return nil, 0, fmt.Errorf("search documents: %w", err)
 	}
 	defer rows.Close()
-	return scanDocuments(rows)
+	docs, err := scanDocuments(rows)
+	return docs, total, err
 }
 
 // UpdateDocument snapshots the current version then updates the document record.
@@ -360,12 +426,19 @@ func (s *Store) CreateDocumentVersion(ctx context.Context, docID string, version
 	return &v, nil
 }
 
-func (s *Store) ListDocumentVersions(ctx context.Context, docID string) ([]*DocumentVersion, error) {
+func (s *Store) ListDocumentVersions(ctx context.Context, docID string, page PageOpts) ([]*DocumentVersion, int, error) {
+	page = page.validated()
+	var total int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM document_versions WHERE document_id=?`, docID).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count versions: %w", err)
+	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, document_id, version, content_type, size, checksum, storage_key, created_by, created_at
-		 FROM document_versions WHERE document_id=? ORDER BY version DESC`, docID)
+		 FROM document_versions WHERE document_id=? ORDER BY version DESC
+		 LIMIT ? OFFSET ?`, docID, page.Limit, page.Offset)
 	if err != nil {
-		return nil, fmt.Errorf("list versions: %w", err)
+		return nil, 0, fmt.Errorf("list versions: %w", err)
 	}
 	defer rows.Close()
 	var out []*DocumentVersion
@@ -373,11 +446,11 @@ func (s *Store) ListDocumentVersions(ctx context.Context, docID string) ([]*Docu
 		var v DocumentVersion
 		if err := rows.Scan(&v.ID, &v.DocumentID, &v.Version, &v.ContentType,
 			&v.Size, &v.Checksum, &v.StorageKey, &v.CreatedBy, &v.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan version: %w", err)
+			return nil, 0, fmt.Errorf("scan version: %w", err)
 		}
 		out = append(out, &v)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 // RenameDocument updates only the document name without snapshotting a version.
@@ -630,19 +703,30 @@ func (s *Store) SetDocumentTags(ctx context.Context, docID string, tags []string
 }
 
 // ListDocumentsByTag returns documents in a bucket that carry the given tag.
-func (s *Store) ListDocumentsByTag(ctx context.Context, bucketID, tag string) ([]*Document, error) {
+func (s *Store) ListDocumentsByTag(ctx context.Context, bucketID, tag string, page PageOpts) ([]*Document, int, error) {
+	page = page.validated()
+	var total int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM documents d
+		 JOIN document_tags dt ON dt.document_id = d.id AND dt.tag = ?
+		 WHERE d.bucket_id=? AND d.deleted_at IS NULL`,
+		tag, bucketID).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count documents by tag: %w", err)
+	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT d.id, d.bucket_id, d.name, d.content_type, d.size, d.checksum,
 		        d.storage_key, d.version, d.created_by, d.created_at, d.updated_at
 		 FROM documents d
 		 JOIN document_tags dt ON dt.document_id = d.id AND dt.tag = ?
-		 WHERE d.bucket_id=? AND d.deleted_at IS NULL ORDER BY d.name`,
-		tag, bucketID)
+		 WHERE d.bucket_id=? AND d.deleted_at IS NULL ORDER BY d.name
+		 LIMIT ? OFFSET ?`,
+		tag, bucketID, page.Limit, page.Offset)
 	if err != nil {
-		return nil, fmt.Errorf("list documents by tag: %w", err)
+		return nil, 0, fmt.Errorf("list documents by tag: %w", err)
 	}
 	defer rows.Close()
-	return scanDocuments(rows)
+	docs, err := scanDocuments(rows)
+	return docs, total, err
 }
 
 // ─── Custom properties ────────────────────────────────────────────────────────
