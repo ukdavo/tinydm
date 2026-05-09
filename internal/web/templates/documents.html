@@ -18,10 +18,7 @@
 <div class="card" style="margin-bottom:16px;">
   <div class="card-header"><h2>Upload Document</h2></div>
   <div class="card-body">
-    <form method="POST"
-          action="/admin/tenants/{{.Tenant.ID}}/projects/{{.Project.ID}}/buckets/{{.Bucket.ID}}/documents"
-          enctype="multipart/form-data"
-          hx-post="/admin/tenants/{{.Tenant.ID}}/projects/{{.Project.ID}}/buckets/{{.Bucket.ID}}/documents"
+    <form hx-post="/admin/tenants/{{.Tenant.ID}}/projects/{{.Project.ID}}/buckets/{{.Bucket.ID}}/documents"
           hx-target="#docs-list"
           hx-swap="beforeend"
           hx-encoding="multipart/form-data"
@@ -45,7 +42,30 @@
 
 <!-- Document list -->
 <div class="card">
-  <div class="card-header"><h2>Files</h2></div>
+  <div class="card-header">
+    <h2>Files</h2>
+    <!-- Filter bar -->
+    <div class="filter-bar" style="margin-top:10px;">
+      <div class="form-group">
+        <label>Search</label>
+        <input type="text" name="q" id="doc-search" placeholder="Filter by name…"
+          hx-get="/admin/tenants/{{.Tenant.ID}}/projects/{{.Project.ID}}/buckets/{{.Bucket.ID}}/documents/rows"
+          hx-target="#docs-list"
+          hx-swap="innerHTML"
+          hx-trigger="input delay:300ms"
+          hx-include="#doc-search,#doc-tag-filter">
+      </div>
+      <div class="form-group">
+        <label>Tag</label>
+        <input type="text" name="tag" id="doc-tag-filter" placeholder="Filter by tag…"
+          hx-get="/admin/tenants/{{.Tenant.ID}}/projects/{{.Project.ID}}/buckets/{{.Bucket.ID}}/documents/rows"
+          hx-target="#docs-list"
+          hx-swap="innerHTML"
+          hx-trigger="input delay:300ms"
+          hx-include="#doc-search,#doc-tag-filter">
+      </div>
+    </div>
+  </div>
   <div class="table-wrap">
     <table>
       <thead>
@@ -77,7 +97,7 @@
 {{define "document-row"}}
 <tr id="doc-{{.ID}}">
   <td>
-    <a href="/admin/documents/{{.ID}}/download">{{.Name}}</a>
+    <a href="/admin/documents/{{.ID}}">{{.Name}}</a>
   </td>
   <td class="muted">{{.ContentType}}</td>
   <td class="muted">{{.Size}}</td>
@@ -85,7 +105,13 @@
   <td class="mono">{{slice .Checksum 0 12}}…</td>
   <td class="text-right">
     <div class="flex gap-8 items-center" style="justify-content:flex-end;">
-      <a href="/admin/documents/{{.ID}}/download" class="btn btn-ghost btn-sm">↓ Download</a>
+      <button class="btn btn-ghost btn-sm"
+        hx-get="/admin/documents/{{.ID}}/edit"
+        hx-target="#doc-{{.ID}}"
+        hx-swap="outerHTML">
+        Edit
+      </button>
+      <a href="/admin/documents/{{.ID}}/download" class="btn btn-ghost btn-sm">↓</a>
       <button class="btn btn-danger btn-sm"
         hx-delete="/admin/documents/{{.ID}}"
         hx-target="#doc-{{.ID}}"
@@ -95,5 +121,37 @@
       </button>
     </div>
   </td>
+</tr>
+{{end}}
+
+{{define "document-edit-row"}}
+<tr id="doc-{{.ID}}">
+  <td colspan="5">
+    <div class="edit-row-form">
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" id="doc-name-{{.ID}}" name="name" value="{{.Name}}" required style="min-width:220px;">
+      </div>
+      <div class="form-group">
+        <label>Replace file (optional)</label>
+        <input type="file" id="doc-file-{{.ID}}" name="file">
+      </div>
+      <button class="btn btn-primary btn-sm"
+        hx-put="/admin/documents/{{.ID}}"
+        hx-include="#doc-name-{{.ID}},#doc-file-{{.ID}}"
+        hx-encoding="multipart/form-data"
+        hx-target="#doc-{{.ID}}"
+        hx-swap="outerHTML">
+        Save
+      </button>
+      <button class="btn btn-ghost btn-sm"
+        hx-get="/admin/documents/{{.ID}}/row"
+        hx-target="#doc-{{.ID}}"
+        hx-swap="outerHTML">
+        Cancel
+      </button>
+    </div>
+  </td>
+  <td></td>
 </tr>
 {{end}}

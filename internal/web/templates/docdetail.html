@@ -1,0 +1,196 @@
+{{define "title"}}{{.Doc.Name}} — Document{{end}}
+{{define "content"}}
+<div class="breadcrumb">
+  <a href="/admin/tenants">Tenants</a>
+  <span class="sep">›</span>
+  <a href="/admin/tenants/{{.Tenant.ID}}/projects">{{.Tenant.Name}}</a>
+  <span class="sep">›</span>
+  <a href="/admin/tenants/{{.Tenant.ID}}/projects/{{.Project.ID}}/buckets">{{.Project.Name}}</a>
+  <span class="sep">›</span>
+  <a href="/admin/tenants/{{.Tenant.ID}}/projects/{{.Project.ID}}/buckets/{{.Bucket.ID}}/documents">{{.Bucket.Name}}</a>
+  <span class="sep">›</span>
+  <span class="current">{{.Doc.Name}}</span>
+</div>
+
+<div class="page-header">
+  <div><h1>{{.Doc.Name}}</h1></div>
+  <div class="flex gap-8 items-center">
+    <a href="/admin/documents/{{.Doc.ID}}/download" class="btn btn-ghost btn-sm">↓ Download</a>
+    <button class="btn btn-danger btn-sm"
+      hx-delete="/admin/documents/{{.Doc.ID}}"
+      hx-confirm="Delete '{{.Doc.Name}}'? This cannot be undone."
+      hx-on::after-request="window.location='/admin/tenants/{{.Tenant.ID}}/projects/{{.Project.ID}}/buckets/{{.Bucket.ID}}/documents'">
+      Delete
+    </button>
+  </div>
+</div>
+
+<!-- ── Document metadata ──────────────────────────────────────────────────── -->
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-header"><h2>Details</h2></div>
+  <div class="card-body">
+    <div class="detail-meta">
+      <div class="detail-meta-item"><label>Name</label><span>{{.Doc.Name}}</span></div>
+      <div class="detail-meta-item"><label>Content type</label><span>{{.Doc.ContentType}}</span></div>
+      <div class="detail-meta-item"><label>Size</label><span>{{.Doc.Size}} bytes</span></div>
+      <div class="detail-meta-item"><label>Version</label><span>v{{.Doc.Version}}</span></div>
+      <div class="detail-meta-item"><label>Created by</label><span>{{.Doc.CreatedBy}}</span></div>
+      <div class="detail-meta-item"><label>Created</label><span>{{.Doc.CreatedAt}}</span></div>
+      <div class="detail-meta-item"><label>Updated</label><span>{{.Doc.UpdatedAt}}</span></div>
+      <div class="detail-meta-item"><label>Checksum (SHA-256)</label><span class="mono">{{.Doc.Checksum}}</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Tags ──────────────────────────────────────────────────────────────── -->
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-header"><h2>Tags</h2></div>
+  <div class="card-body">
+    <div id="doc-tags">
+      {{template "doc-tags-inner" .TagsData}}
+    </div>
+  </div>
+</div>
+
+<!-- ── User properties ───────────────────────────────────────────────────── -->
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-header"><h2>Properties</h2></div>
+  <div class="card-body">
+    {{if .UserProps}}
+    <table style="width:100%;margin-bottom:14px;">
+      <thead><tr><th style="width:35%">Key</th><th>Value</th><th></th></tr></thead>
+      <tbody id="doc-props-body">
+        {{range .UserProps}}{{template "prop-row" .}}{{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <p class="muted" style="margin-bottom:12px;">No custom properties.</p>
+    {{end}}
+    <!-- Add / update property -->
+    <div class="edit-row-form">
+      <div class="form-group">
+        <label>Key</label>
+        <input type="text" id="prop-key" name="key" placeholder="e.g. author" style="min-width:140px;">
+      </div>
+      <div class="form-group">
+        <label>Value</label>
+        <input type="text" id="prop-val" name="value" placeholder="e.g. Alice" style="min-width:200px;">
+      </div>
+      <button class="btn btn-primary btn-sm"
+        hx-post="/admin/documents/{{.Doc.ID}}/properties"
+        hx-include="#prop-key,#prop-val"
+        hx-target="#doc-props-body"
+        hx-swap="innerHTML"
+        hx-on::after-request="document.getElementById('prop-key').value='';document.getElementById('prop-val').value=''">
+        Set Property
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── System metadata ───────────────────────────────────────────────────── -->
+{{if .SysProps}}
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-header"><h2>Extracted Metadata</h2></div>
+  <div class="card-body">
+    <table style="width:100%;">
+      <thead><tr><th>Key</th><th>Value</th></tr></thead>
+      <tbody>
+        {{range .SysProps}}
+        <tr><td class="mono">{{.Key}}</td><td>{{.Value}}</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</div>
+{{end}}
+
+<!-- ── Version history ───────────────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-header"><h2>Version History</h2></div>
+  <div class="table-wrap">
+    {{if .Versions}}
+    <table>
+      <thead>
+        <tr>
+          <th>Version</th>
+          <th>Type</th>
+          <th>Size</th>
+          <th>Checksum</th>
+          <th>Saved by</th>
+          <th>Saved at</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Versions}}
+        {{template "version-row" .}}
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <div class="empty-state"><p>No previous versions.</p><p class="hint">A snapshot is saved automatically each time you update the document.</p></div>
+    {{end}}
+  </div>
+</div>
+{{end}}
+
+<!-- ── Partials ───────────────────────────────────────────────────────────── -->
+
+{{define "doc-tags-inner"}}
+<div class="tag-chips">
+  {{range .Tags}}
+  <span class="tag-chip">
+    {{.}}
+    <button class="chip-remove"
+      hx-delete="/admin/documents/{{$.DocID}}/tags/{{.}}"
+      hx-target="#doc-tags"
+      hx-swap="innerHTML"
+      title="Remove tag">×</button>
+  </span>
+  {{end}}
+  <form class="inline-tag-form"
+    hx-post="/admin/documents/{{.DocID}}/tags"
+    hx-target="#doc-tags"
+    hx-swap="innerHTML"
+    hx-on::after-request="this.reset()">
+    <input type="text" name="tag" placeholder="Add tag…" required>
+    <button type="submit" class="btn btn-ghost btn-sm">+ Add</button>
+  </form>
+</div>
+{{end}}
+
+{{define "prop-row"}}
+<tr id="prop-{{.DocID}}-{{.Key}}">
+  <td class="mono">{{.Key}}</td>
+  <td>{{.Value}}</td>
+  <td class="text-right">
+    <button class="btn btn-danger btn-sm"
+      hx-delete="/admin/documents/{{.DocID}}/properties/{{.Key}}"
+      hx-target="#prop-{{.DocID}}-{{.Key}}"
+      hx-swap="outerHTML"
+      hx-confirm="Delete property '{{.Key}}'?">
+      Delete
+    </button>
+  </td>
+</tr>
+{{end}}
+
+{{define "version-row"}}
+<tr id="version-{{.ID}}">
+  <td><span class="badge badge-gray">v{{.Version}}</span></td>
+  <td class="muted">{{.ContentType}}</td>
+  <td class="muted">{{.Size}}</td>
+  <td class="mono">{{slice .Checksum 0 12}}…</td>
+  <td class="muted">{{.CreatedBy}}</td>
+  <td class="muted">{{.CreatedAt}}</td>
+  <td class="text-right">
+    <button class="btn btn-ghost btn-sm"
+      hx-post="/admin/documents/{{.DocumentID}}/versions/{{.ID}}/restore"
+      hx-confirm="Restore to v{{.Version}}? The current content will be saved as a new snapshot."
+      hx-on::after-request="window.location=window.location.href">
+      Restore
+    </button>
+  </td>
+</tr>
+{{end}}

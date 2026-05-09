@@ -111,16 +111,16 @@ The REST API already supports all of these operations; this phase exposes them v
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 7.1 | Bucket edit — rename and update description | ⬜ | Inline edit row; calls `PUT /api/v1/…/buckets/{id}`; row-level HTMX swap |
-| 7.2 | Document update — rename and/or replace content | ⬜ | Edit form on document row; calls `PUT .../documents/{id}` with optional file re-upload; snapshots previous version automatically |
-| 7.3 | Document name search — live filter on document list | ⬜ | Search input on the documents page; HTMX-driven `?q=` filter; debounced with `hx-trigger="input delay:300ms"` |
-| 7.4 | Tag filter — filter document list by tag | ⬜ | Tag input on documents page; HTMX-driven `?tag=` filter; clears when empty |
-| 7.5 | Document detail page | ⬜ | `/admin/documents/{id}` — single page showing name, content-type, size, checksum, created-by; entry point for management panels below |
-| 7.6 | Tag management UI | ⬜ | Tag list with add/remove on document detail; `POST/DELETE .../tags/{tag}` per change; tag chips rendered as HTMX partials |
-| 7.7 | Custom properties UI | ⬜ | Key/value table on document detail; inline add/edit/delete; calls `PUT/DELETE .../properties/{key}`; reserved `sys.*` keys shown read-only |
-| 7.8 | System metadata display | ⬜ | Read-only panel on document detail showing extracted properties (image dimensions, PDF version, Office container type) |
-| 7.9 | Version history and restore | ⬜ | Version list on document detail (newest first); restore button calls `POST .../versions/{versionID}/restore` with confirmation dialog |
-| 7.10 | Integration test — `test_phase7.sh` | ⬜ | Covers all nine UI sections above; follows same curl + cookie-jar pattern as `test_phase6.sh` |
+| 7.1 | Bucket edit — rename and update description | ✅ | Inline edit row; `GET .../edit`, `GET .../row`, `PUT .../buckets/{id}`; row-level HTMX swap |
+| 7.2 | Document update — rename and/or replace content | ✅ | Edit form on document row; `PUT .../documents/{id}` with optional file re-upload; rename-only = no snapshot, content replace = snapshot |
+| 7.3 | Document name search — live filter on document list | ✅ | Search input on documents page; `GET .../documents/rows?q=` HTMX partial; debounced `input delay:300ms` |
+| 7.4 | Tag filter — filter document list by tag | ✅ | Tag input on documents page; `GET .../documents/rows?tag=` HTMX partial; combinable with `?q=` |
+| 7.5 | Document detail page | ✅ | `GET /admin/documents/{id}` — full detail page with breadcrumb, metadata grid, tags, properties, versions |
+| 7.6 | Tag management UI | ✅ | Tag chips with add form and remove button; `POST/DELETE .../tags/{tag}`; `doc-tags-inner` HTMX partial |
+| 7.7 | Custom properties UI | ✅ | Key/value table with inline add and per-row delete; `POST/DELETE .../properties/{key}`; HTMX partial updates |
+| 7.8 | System metadata display | ✅ | Read-only "Extracted Metadata" panel for `sys.*` properties; only shown when metadata exists |
+| 7.9 | Version history and restore | ✅ | Version table on detail page; `POST .../versions/{versionID}/restore` with hx-confirm dialog |
+| 7.10 | Integration test — `test_phase7.sh` | ✅ | 50+ assertions across all nine UI sections; curl + cookie-jar pattern matching `test_phase6.sh` |
 
 ---
 

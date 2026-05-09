@@ -380,6 +380,27 @@ func (s *Store) ListDocumentVersions(ctx context.Context, docID string) ([]*Docu
 	return out, rows.Err()
 }
 
+// RenameDocument updates only the document name without snapshotting a version.
+func (s *Store) RenameDocument(ctx context.Context, id, name string) (*Document, error) {
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE documents SET name=?, updated_at=CURRENT_TIMESTAMP
+		 WHERE id=? AND deleted_at IS NULL`,
+		name, id,
+	); err != nil {
+		return nil, fmt.Errorf("rename document: %w", err)
+	}
+	return s.GetDocument(ctx, id)
+}
+
+// CountDocumentsInBucket returns the number of non-deleted documents in a bucket.
+func (s *Store) CountDocumentsInBucket(ctx context.Context, bucketID string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM documents WHERE bucket_id=? AND deleted_at IS NULL`,
+		bucketID).Scan(&n)
+	return n, err
+}
+
 // ─── Counts (used by the admin dashboard) ────────────────────────────────────
 
 // CountTenants returns the number of non-deleted tenants.

@@ -59,15 +59,54 @@
 <tr id="bucket-{{.ID}}">
   <td><a href="/admin/tenants/{{.TenantID}}/projects/{{.ProjectID}}/buckets/{{.ID}}/documents">{{.Name}}</a></td>
   <td class="muted">{{.Description}}</td>
-  <td class="muted">—</td>
+  <td class="muted">{{.DocCount}}</td>
   <td class="text-right">
-    <button class="btn btn-danger btn-sm"
-      hx-delete="/admin/tenants/{{.TenantID}}/projects/{{.ProjectID}}/buckets/{{.ID}}"
-      hx-target="#bucket-{{.ID}}"
-      hx-swap="outerHTML"
-      hx-confirm="Delete bucket '{{.Name}}'?">
-      Delete
-    </button>
+    <div class="flex gap-8 items-center" style="justify-content:flex-end;">
+      <button class="btn btn-ghost btn-sm"
+        hx-get="/admin/tenants/{{.TenantID}}/projects/{{.ProjectID}}/buckets/{{.ID}}/edit"
+        hx-target="#bucket-{{.ID}}"
+        hx-swap="outerHTML">
+        Edit
+      </button>
+      <button class="btn btn-danger btn-sm"
+        hx-delete="/admin/tenants/{{.TenantID}}/projects/{{.ProjectID}}/buckets/{{.ID}}"
+        hx-target="#bucket-{{.ID}}"
+        hx-swap="outerHTML"
+        hx-confirm="Delete bucket '{{.Name}}'?">
+        Delete
+      </button>
+    </div>
   </td>
+</tr>
+{{end}}
+
+{{define "bucket-edit-row"}}
+<tr id="bucket-{{.ID}}">
+  <td colspan="3">
+    <div class="edit-row-form">
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" id="bkt-name-{{.ID}}" name="name" value="{{.Name}}" required>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <input type="text" id="bkt-desc-{{.ID}}" name="description" value="{{.Description}}">
+      </div>
+      <button class="btn btn-primary btn-sm"
+        hx-put="/admin/tenants/{{.TenantID}}/projects/{{.ProjectID}}/buckets/{{.ID}}"
+        hx-include="#bkt-name-{{.ID}},#bkt-desc-{{.ID}}"
+        hx-target="#bucket-{{.ID}}"
+        hx-swap="outerHTML">
+        Save
+      </button>
+      <button class="btn btn-ghost btn-sm"
+        hx-get="/admin/tenants/{{.TenantID}}/projects/{{.ProjectID}}/buckets/{{.ID}}/row"
+        hx-target="#bucket-{{.ID}}"
+        hx-swap="outerHTML">
+        Cancel
+      </button>
+    </div>
+  </td>
+  <td></td>
 </tr>
 {{end}}

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -249,11 +250,12 @@ func (h *Handler) deleteProject(w http.ResponseWriter, r *http.Request) {
 
 // ── Buckets ───────────────────────────────────────────────────────────────────
 
-// bucketRow wraps a Bucket with the parent TenantID, needed by the bucket-row
-// template to build breadcrumb and delete URLs.
+// bucketRow wraps a Bucket with the parent TenantID and document count,
+// needed by the bucket-row template to build URLs and show stats.
 type bucketRow struct {
 	*repo.Bucket
 	TenantID string
+	DocCount int
 }
 
 type bucketsData struct {
@@ -281,7 +283,8 @@ func (h *Handler) buckets(w http.ResponseWriter, r *http.Request) {
 	raw, _ := h.repo.ListBuckets(r.Context(), projectID)
 	var rows []bucketRow
 	for _, b := range raw {
-		rows = append(rows, bucketRow{Bucket: b, TenantID: tenantID})
+		n, _ := h.repo.CountDocumentsInBucket(r.Context(), b.ID)
+		rows = append(rows, bucketRow{Bucket: b, TenantID: tenantID, DocCount: n})
 	}
 
 	h.render(w, "buckets", bucketsData{
@@ -306,7 +309,8 @@ func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "create failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.renderPartial(w, "buckets", "bucket-row", bucketRow{Bucket: b, TenantID: tenantID})
+	n, _ := h.repo.CountDocumentsInBucket(r.Context(), b.ID)
+	h.renderPartial(w, "buckets", "bucket-row", bucketRow{Bucket: b, TenantID: tenantID, DocCount: n})
 }
 
 func (h *Handler) deleteBucket(w http.ResponseWriter, r *http.Request) {
@@ -607,6 +611,351 @@ func (h *Handler) auditLog(w http.ResponseWriter, r *http.Request) {
 		basePage: h.base(r, "audit"),
 		Events:   events,
 	})
+}
+
+// ── Phase 7: Bucket edit / update ────────────────────────────────────────────
+
+func (h *Handler) editBucketForm(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	bucketID := chi.URLParam(r, "bucketID")
+	b, err := h.repo.GetBucket(r.Context(), bucketID)
+	if err != nil || b == nil {
+		http.NotFound(w, r)
+		return
+	}
+	n, _ := h.repo.CountDocumentsInBucket(r.Context(), b.ID)
+	h.renderPartial(w, "buckets", "bucket-edit-row", bucketRow{Bucket: b, TenantID: tenantID, DocCount: n})
+}
+
+func (h *Handler) bucketRowPartial(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	bucketID := chi.URLParam(r, "bucketID")
+	b, err := h.repo.GetBucket(r.Context(), bucketID)
+	if err != nil || b == nil {
+		http.NotFound(w, r)
+		return
+	}
+	n, _ := h.repo.CountDocumentsInBucket(r.Context(), b.ID)
+	h.renderPartial(w, "buckets", "bucket-row", bucketRow{Bucket: b, TenantID: tenantID, DocCount: n})
+}
+
+func (h *Handler) updateBucket(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	bucketID := chi.URLParam(r, "bucketID")
+	name := r.FormValue("name")
+	desc := r.FormValue("description")
+	if name == "" {
+		http.Error(w, "name required", http.StatusBadRequest)
+		return
+	}
+	b, err := h.repo.UpdateBucket(r.Context(), bucketID, name, desc)
+	if err != nil {
+		http.Error(w, "update failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	n, _ := h.repo.CountDocumentsInBucket(r.Context(), b.ID)
+	h.renderPartial(w, "buckets", "bucket-row", bucketRow{Bucket: b, TenantID: tenantID, DocCount: n})
+}
+
+// ── Phase 7: Document rows (HTMX search / tag-filter partial) ─────────────────
+
+func (h *Handler) documentRows(w http.ResponseWriter, r *http.Request) {
+	bucketID := chi.URLParam(r, "bucketID")
+	q := r.URL.Query().Get("q")
+	tag := r.URL.Query().Get("tag")
+
+	var docs []*repo.Document
+	if tag != "" {
+		docs, _ = h.repo.ListDocumentsByTag(r.Context(), bucketID, tag)
+		if q != "" {
+			ql := strings.ToLower(q)
+			var filtered []*repo.Document
+			for _, d := range docs {
+				if strings.Contains(strings.ToLower(d.Name), ql) {
+					filtered = append(filtered, d)
+				}
+			}
+			docs = filtered
+		}
+	} else if q != "" {
+		docs, _ = h.repo.SearchDocuments(r.Context(), bucketID, q)
+	} else {
+		docs, _ = h.repo.ListDocuments(r.Context(), bucketID)
+	}
+
+	t, ok := h.tmpls["documents"]
+	if !ok {
+		http.Error(w, "template error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if len(docs) == 0 {
+		fmt.Fprintf(w, `<tr><td colspan="6"><div class="empty-state"><p>No documents found.</p></div></td></tr>`)
+		return
+	}
+	for _, d := range docs {
+		if err := t.ExecuteTemplate(w, "document-row", d); err != nil {
+			slog.Error("document-row render error", "error", err)
+		}
+	}
+}
+
+// ── Phase 7: Document inline-edit partials ────────────────────────────────────
+
+func (h *Handler) editDocumentForm(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "documentID")
+	doc, err := h.repo.GetDocument(r.Context(), id)
+	if err != nil || doc == nil {
+		http.NotFound(w, r)
+		return
+	}
+	h.renderPartial(w, "documents", "document-edit-row", doc)
+}
+
+func (h *Handler) documentRowPartial(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "documentID")
+	doc, err := h.repo.GetDocument(r.Context(), id)
+	if err != nil || doc == nil {
+		http.NotFound(w, r)
+		return
+	}
+	h.renderPartial(w, "documents", "document-row", doc)
+}
+
+func (h *Handler) updateDocument(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "documentID")
+	doc, err := h.repo.GetDocument(r.Context(), id)
+	if err != nil || doc == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		_ = r.ParseForm()
+	}
+
+	name := r.FormValue("name")
+	if name == "" {
+		name = doc.Name
+	}
+
+	file, fh, fileErr := r.FormFile("file")
+	if fileErr == nil {
+		// Full content replacement — creates a version snapshot.
+		defer file.Close()
+		p, _ := auth.PrincipalFromContext(r.Context())
+		key, size, checksum, err := h.storage.Put(r.Context(), file)
+		if err != nil {
+			http.Error(w, "storage error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		ct := fh.Header.Get("Content-Type")
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
+		doc, err = h.repo.UpdateDocument(r.Context(), id, name, ct, size, checksum, key, p.Username)
+		if err != nil {
+			http.Error(w, "update failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	} else {
+		// Name-only rename — no snapshot.
+		doc, err = h.repo.RenameDocument(r.Context(), id, name)
+		if err != nil {
+			http.Error(w, "rename failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	h.renderPartial(w, "documents", "document-row", doc)
+}
+
+// ── Phase 7: Document detail page ─────────────────────────────────────────────
+
+// docProperty is a key/value pair for template rendering of document properties.
+type docProperty struct {
+	DocID string
+	Key   string
+	Value string
+}
+
+// docTagsData holds a document ID and its tag list for the doc-tags-inner partial.
+type docTagsData struct {
+	DocID string
+	Tags  []string
+}
+
+// documentDetailData holds everything needed to render the document detail page.
+type documentDetailData struct {
+	basePage
+	Doc       *repo.Document
+	Tenant    *repo.Tenant
+	Project   *repo.Project
+	Bucket    *repo.Bucket
+	TagsData  docTagsData
+	UserProps []docProperty
+	SysProps  []docProperty
+	Versions  []*repo.DocumentVersion
+}
+
+// resolveDocumentContext walks bucket → project → tenant for a given document.
+func (h *Handler) resolveDocumentContext(ctx context.Context, doc *repo.Document) (*repo.Tenant, *repo.Project, *repo.Bucket, error) {
+	bucket, err := h.repo.GetBucket(ctx, doc.BucketID)
+	if err != nil || bucket == nil {
+		return nil, nil, nil, fmt.Errorf("bucket not found")
+	}
+	project, err := h.repo.GetProject(ctx, bucket.ProjectID)
+	if err != nil || project == nil {
+		return nil, nil, nil, fmt.Errorf("project not found")
+	}
+	tenant, err := h.repo.GetTenant(ctx, project.TenantID)
+	if err != nil || tenant == nil {
+		return nil, nil, nil, fmt.Errorf("tenant not found")
+	}
+	return tenant, project, bucket, nil
+}
+
+// buildDocDetailData assembles the full documentDetailData for a document.
+func (h *Handler) buildDocDetailData(r *http.Request, doc *repo.Document) (documentDetailData, error) {
+	tenant, project, bucket, err := h.resolveDocumentContext(r.Context(), doc)
+	if err != nil {
+		return documentDetailData{}, err
+	}
+
+	tags, _ := h.repo.ListDocumentTags(r.Context(), doc.ID)
+
+	rawProps, _ := h.repo.GetDocumentProperties(r.Context(), doc.ID)
+	keys := make([]string, 0, len(rawProps))
+	for k := range rawProps {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var userProps, sysProps []docProperty
+	for _, k := range keys {
+		dp := docProperty{DocID: doc.ID, Key: k, Value: rawProps[k]}
+		if strings.HasPrefix(k, "sys.") {
+			sysProps = append(sysProps, dp)
+		} else {
+			userProps = append(userProps, dp)
+		}
+	}
+
+	versions, _ := h.repo.ListDocumentVersions(r.Context(), doc.ID)
+
+	return documentDetailData{
+		basePage:  h.base(r, "documents"),
+		Doc:       doc,
+		Tenant:    tenant,
+		Project:   project,
+		Bucket:    bucket,
+		TagsData:  docTagsData{DocID: doc.ID, Tags: tags},
+		UserProps: userProps,
+		SysProps:  sysProps,
+		Versions:  versions,
+	}, nil
+}
+
+func (h *Handler) documentDetail(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "documentID")
+	doc, err := h.repo.GetDocument(r.Context(), id)
+	if err != nil || doc == nil {
+		http.NotFound(w, r)
+		return
+	}
+	data, err := h.buildDocDetailData(r, doc)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h.render(w, "docdetail", data)
+}
+
+// ── Phase 7: Document tags ─────────────────────────────────────────────────────
+
+func (h *Handler) addDocumentTag(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "documentID")
+	tag := strings.TrimSpace(r.FormValue("tag"))
+	if tag == "" {
+		http.Error(w, "tag required", http.StatusBadRequest)
+		return
+	}
+	if err := h.repo.AddDocumentTag(r.Context(), id, tag); err != nil {
+		http.Error(w, "add tag failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tags, _ := h.repo.ListDocumentTags(r.Context(), id)
+	h.renderPartial(w, "docdetail", "doc-tags-inner", docTagsData{DocID: id, Tags: tags})
+}
+
+func (h *Handler) removeDocumentTag(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "documentID")
+	tag := chi.URLParam(r, "tag")
+	if err := h.repo.RemoveDocumentTag(r.Context(), id, tag); err != nil {
+		http.Error(w, "remove tag failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tags, _ := h.repo.ListDocumentTags(r.Context(), id)
+	h.renderPartial(w, "docdetail", "doc-tags-inner", docTagsData{DocID: id, Tags: tags})
+}
+
+// ── Phase 7: Document properties ──────────────────────────────────────────────
+
+func (h *Handler) setDocumentPropertyWeb(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "documentID")
+	key := strings.TrimSpace(r.FormValue("key"))
+	value := r.FormValue("value")
+	if key == "" {
+		http.Error(w, "key required", http.StatusBadRequest)
+		return
+	}
+	if err := h.repo.SetDocumentProperty(r.Context(), id, key, value); err != nil {
+		http.Error(w, "set property failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	rawProps, _ := h.repo.GetDocumentProperties(r.Context(), id)
+	var keys []string
+	for k := range rawProps {
+		if !strings.HasPrefix(k, "sys.") {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	t, ok := h.tmpls["docdetail"]
+	if !ok {
+		http.Error(w, "template error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	for _, k := range keys {
+		dp := docProperty{DocID: id, Key: k, Value: rawProps[k]}
+		if err := t.ExecuteTemplate(w, "prop-row", dp); err != nil {
+			slog.Error("prop-row render error", "error", err)
+		}
+	}
+}
+
+func (h *Handler) deleteDocumentPropertyWeb(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "documentID")
+	key := chi.URLParam(r, "key")
+	if err := h.repo.DeleteDocumentProperty(r.Context(), id, key); err != nil {
+		http.Error(w, "delete property failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// Return empty — hx-swap="outerHTML" with empty body removes the target element.
+	w.WriteHeader(http.StatusOK)
+}
+
+// ── Phase 7: Document version restore ─────────────────────────────────────────
+
+func (h *Handler) restoreDocumentVersionWeb(w http.ResponseWriter, r *http.Request) {
+	docID := chi.URLParam(r, "documentID")
+	versionID := chi.URLParam(r, "versionID")
+	p, _ := auth.PrincipalFromContext(r.Context())
+	if _, err := h.repo.RestoreDocumentVersion(r.Context(), docID, versionID, p.Username); err != nil {
+		http.Error(w, "restore failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 // auditEvents handles the HTMX partial for filtered audit rows.

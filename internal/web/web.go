@@ -77,7 +77,7 @@ func (h *Handler) parseTemplates() {
 
 	pages := []string{
 		"dashboard", "tenants", "projects", "buckets",
-		"documents", "users", "apikeys", "audit",
+		"documents", "docdetail", "users", "apikeys", "audit",
 	}
 	for _, page := range pages {
 		t := template.Must(base.Clone())
@@ -123,13 +123,34 @@ func RegisterRoutes(r chi.Router, h *Handler) {
 		// Buckets
 		r.Get("/admin/tenants/{tenantID}/projects/{projectID}/buckets", h.buckets)
 		r.Post("/admin/tenants/{tenantID}/projects/{projectID}/buckets", h.createBucket)
+		r.Get("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/edit", h.editBucketForm)
+		r.Get("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/row", h.bucketRowPartial)
+		r.Put("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}", h.updateBucket)
 		r.Delete("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}", h.deleteBucket)
 
-		// Documents
+		// Documents list
 		r.Get("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/documents", h.documents)
 		r.Post("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/documents", h.uploadDocument)
+		r.Get("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/documents/rows", h.documentRows)
+
+		// Document detail / edit
+		r.Get("/admin/documents/{documentID}", h.documentDetail)
+		r.Put("/admin/documents/{documentID}", h.updateDocument)
+		r.Get("/admin/documents/{documentID}/edit", h.editDocumentForm)
+		r.Get("/admin/documents/{documentID}/row", h.documentRowPartial)
 		r.Delete("/admin/documents/{documentID}", h.deleteDocument)
 		r.Get("/admin/documents/{documentID}/download", h.downloadDocument)
+
+		// Document tags
+		r.Post("/admin/documents/{documentID}/tags", h.addDocumentTag)
+		r.Delete("/admin/documents/{documentID}/tags/{tag}", h.removeDocumentTag)
+
+		// Document properties
+		r.Post("/admin/documents/{documentID}/properties", h.setDocumentPropertyWeb)
+		r.Delete("/admin/documents/{documentID}/properties/{key}", h.deleteDocumentPropertyWeb)
+
+		// Document version restore
+		r.Post("/admin/documents/{documentID}/versions/{versionID}/restore", h.restoreDocumentVersionWeb)
 
 		// Users
 		r.Get("/admin/users", h.users)
