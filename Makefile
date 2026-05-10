@@ -13,7 +13,7 @@ LDFLAGS       := -s -w \
                  -X main.commit=$(COMMIT) \
                  -X main.buildDate=$(BUILD_DATE)
 
-.PHONY: all build build-all dist test lint clean run sqlc docker-build docker-run help
+.PHONY: all build build-all dist test bench lint clean run sqlc docker-build docker-run help
 
 all: build
 
@@ -50,6 +50,10 @@ dist: build-all
 ## test: run all tests with race detector
 test:
 	$(GO) test ./... -race -timeout 60s
+
+## bench: run all benchmarks (no tests) and report allocations
+bench:
+	$(GO) test ./... -bench=. -benchmem -benchtime=3s -run='^$$'
 
 ## lint: run golangci-lint (install: https://golangci-lint.run/usage/install/)
 lint:

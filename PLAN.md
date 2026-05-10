@@ -137,7 +137,7 @@ Testing, security, packaging, and documentation.
 | 8.5 | PostgreSQL support (alternative to SQLite) | ✅ | `db.DB` wrapper with `?`→`$N` rebind; `TINYDM_DB_DRIVER=postgres` + `TINYDM_DB_DSN`; separate `migrations_pg/`; docker-compose postgres profile |
 | 8.6 | API documentation (OpenAPI / Swagger) | ✅ | OpenAPI 3.1 spec embedded in binary; Swagger UI at `/api/docs`; raw spec at `/api/docs/openapi.yaml` |
 | 8.7 | Deployment guide (binary, Docker, docker-compose) | ✅ | `DEPLOYMENT.md` — binary/systemd, Docker, Compose (SQLite + PostgreSQL), reverse proxy, backup, upgrade |
-| 8.8 | Performance baseline testing | ⬜ | |
+| 8.8 | Performance baseline testing | ✅ | `auth/`, `storage/`, `api/` bench_test.go; `make bench`; `BENCHMARKS.md` |
 
 ---
 
