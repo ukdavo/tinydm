@@ -15,6 +15,12 @@ import (
 
 // RegisterRoutes mounts all API v1 routes onto r.
 // All routes under /api/v1 (except /auth/login) require authentication.
+//
+// Role matrix:
+//
+//	superadmin  — create/update/delete tenants; all admin operations; cross-tenant access
+//	admin       — full control within their tenant (projects, buckets, users, audit)
+//	user        — manage documents, tags, and properties within their tenant
 func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, authStore *auth.Store, store storage.Store, auditStore *audit.Store, locker cluster.Locker) {
 	authHandler := NewAuthHandler(cfg, authStore)
 	tenantHandler := NewTenantHandler(repoStore, authStore)
@@ -28,10 +34,10 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 
 	r.Route("/api/v1", func(r chi.Router) {
 
-		// ── Public ────────────────────────────────────────────────────────────
+		// Public
 		r.Post("/auth/login", authHandler.Login)
 
-		// ── Authenticated ─────────────────────────────────────────────────────
+		// Authenticated
 		r.Group(func(r chi.Router) {
 			r.Use(auth.RequireAuth)
 			r.Use(audit.Middleware(auditStore))
@@ -39,26 +45,29 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 			// Auth
 			r.Get("/auth/me", authHandler.Me)
 
-			// Tenants — list & create are admin-only; read is open to any authed user
+			// Tenants
+			// List: any authenticated user (superadmin sees all, others see their own).
+			// Create: superadmin only — provisioning a domain is a global operation.
+			// Update/Delete: superadmin only (under /tenants/{tenantID}).
 			r.Get("/tenants", tenantHandler.List)
-			r.With(auth.RequireAdmin).Post("/tenants", tenantHandler.Create)
+			r.With(auth.RequireSuperAdmin).Post("/tenants", tenantHandler.Create)
 
 			r.Route("/tenants/{tenantID}", func(r chi.Router) {
 				r.Use(TenantCtx(repoStore))
-				r.Use(RequireSameTenant) // enforce tenant isolation
+				r.Use(RequireSameTenant) // enforce tenant isolation; superadmin exempt
 
 				r.Get("/", tenantHandler.Get)
-				r.With(auth.RequireAdmin).Put("/", tenantHandler.Update)
-				r.With(auth.RequireAdmin).Delete("/", tenantHandler.Delete)
+				r.With(auth.RequireSuperAdmin).Put("/", tenantHandler.Update)
+				r.With(auth.RequireSuperAdmin).Delete("/", tenantHandler.Delete)
 
-				// Audit log — admin only
+				// Audit log — domain admin or superadmin
 				r.With(auth.RequireAdmin).Get("/audit", auditHandler.List)
 
-				// Users & API keys — admin only
+				// Users & API keys — domain admin or superadmin
 				r.With(auth.RequireAdmin).Get("/users", userHandler.ListUsers)
 				r.With(auth.RequireAdmin).Get("/apikeys", userHandler.ListAPIKeys)
 
-				// Projects
+				// Projects — list/read: any user; create/update/delete: admin+
 				r.Get("/projects", projectHandler.List)
 				r.With(auth.RequireAdmin).Post("/projects", projectHandler.Create)
 
@@ -69,7 +78,7 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 					r.With(auth.RequireAdmin).Put("/", projectHandler.Update)
 					r.With(auth.RequireAdmin).Delete("/", projectHandler.Delete)
 
-					// Buckets
+					// Buckets — list/read: any user; create/update/delete: admin+
 					r.Get("/buckets", bucketHandler.List)
 					r.With(auth.RequireAdmin).Post("/buckets", bucketHandler.Create)
 
@@ -80,7 +89,7 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 						r.With(auth.RequireAdmin).Put("/", bucketHandler.Update)
 						r.With(auth.RequireAdmin).Delete("/", bucketHandler.Delete)
 
-						// Documents
+						// Documents — all authenticated users (role=user and above)
 						r.Get("/documents", docHandler.List)
 						r.Post("/documents", docHandler.Upload)
 
@@ -99,13 +108,13 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 								r.Post("/restore", docHandler.RestoreVersion)
 							})
 
-							// Tags
+							// Tags — all authenticated users
 							r.Get("/tags", tagHandler.List)
 							r.Put("/tags", tagHandler.Replace)
 							r.Post("/tags/{tag}", tagHandler.Add)
 							r.Delete("/tags/{tag}", tagHandler.Remove)
 
-							// Custom properties
+							// Custom properties — all authenticated users
 							r.Get("/properties", propHandler.List)
 							r.Put("/properties", propHandler.Replace)
 							r.Put("/properties/{key}", propHandler.Set)

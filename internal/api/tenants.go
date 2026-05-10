@@ -33,6 +33,16 @@ func (h *TenantHandler) List(w http.ResponseWriter, r *http.Request) {
 	writePaged(w, tenants, total, page.Limit, page.Offset)
 }
 
+// createTenantResponse is returned by POST /api/v1/tenants. It includes the
+// newly created tenant plus one-time credentials for the auto-provisioned
+// domain admin. The plaintext password is not stored — the caller must record
+// it immediately.
+type createTenantResponse struct {
+	*repo.Tenant
+	AdminUsername string `json:"admin_username"`
+	AdminPassword string `json:"admin_password"` // one-time plaintext; never re-retrievable
+}
+
 // Create handles POST /api/v1/tenants
 func (h *TenantHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var body struct {
@@ -58,7 +68,23 @@ func (h *TenantHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusCreated, tenant)
+
+	// Automatically provision a domain admin for the new tenant.
+	// The plaintext password is generated here and returned once — it is never
+	// persisted in plain text, so the caller must record it now.
+	adminUser, adminPassword, err := h.authStore.CreateDomainAdmin(r.Context(), tenant.ID)
+	if err != nil {
+		// Tenant was created; log but don't fail — the caller can create an
+		// admin user manually via the users API if this step fails.
+		writeError(w, http.StatusInternalServerError, "tenant created but failed to provision domain admin")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, createTenantResponse{
+		Tenant:        tenant,
+		AdminUsername: adminUser.Username,
+		AdminPassword: adminPassword,
+	})
 }
 
 // Get handles GET /api/v1/tenants/{tenantID}

@@ -191,6 +191,32 @@ database as the coordination medium — no extra infrastructure required.
 
 ---
 
+## Phase 10 — 3-Role Security Model
+
+Introduces a three-tier access control hierarchy: `superadmin` (global, manages domains), `admin` (domain admin, manages a single tenant), and `user` (manages documents within a tenant).
+
+### Role matrix
+
+| Role | Tenant CRUD | Projects / Buckets | Users / Audit | Documents / Tags / Properties |
+|------|-------------|-------------------|---------------|-------------------------------|
+| `superadmin` | ✅ full | ✅ full | ✅ full | ✅ full |
+| `admin` | read-only | ✅ full | ✅ full | ✅ full |
+| `user` | read-only | read-only | — | ✅ full |
+
+### Phase 10 tasks
+
+| # | Task | Status | Notes |
+|---|------|--------|-------|
+| 10.1 | DB migration 004 — extend `user_type` CHECK to include `'superadmin'` | ✅ | SQLite: full table recreate (`users_v2` → rename). PG: `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT`. Both in `internal/db/migrations{_pg}/004_superadmin_role.sql` |
+| 10.2 | `UserTypeSuperAdmin` constant + `IsSuperAdmin()` predicate | ✅ | `internal/auth/context.go`. `IsAdmin()` updated to return true for both `admin` and `superadmin` (superadmin ⊇ admin) |
+| 10.3 | `RequireSuperAdmin` middleware | ✅ | `internal/auth/middleware.go` — HTTP 403 for any non-superadmin principal |
+| 10.4 | Bootstrap creates superadmin (not plain admin) | ✅ | `auth.Store.EnsureAdminUser` now passes `UserTypeSuperAdmin`; lives in the system tenant |
+| 10.5 | Auto-create domain admin on tenant creation | ✅ | `POST /api/v1/tenants` calls `auth.Store.CreateDomainAdmin` which generates a crypto-random password, creates an `admin`-typed user, and returns one-time plaintext credentials in the response body |
+| 10.6 | `RequireSameTenant` bypass for superadmin | ✅ | `internal/api/security.go` — superadmin passes through unconditionally; all other roles remain strictly tenant-isolated |
+| 10.7 | Update route permissions | ✅ | Tenant create/update/delete → `RequireSuperAdmin`. All other admin routes remain `RequireAdmin` (satisfied by both `admin` and `superadmin`). Document/tag/property routes stay open to any authenticated user |
+
+---
+
 ## Backlog — Future Features
 
 Items from the spec not in scope for the initial release.

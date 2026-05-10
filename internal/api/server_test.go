@@ -159,8 +159,22 @@ func bearer(token string) map[string]string {
 	return map[string]string{"Authorization": "Bearer " + token}
 }
 
-// seedAdminUser creates a tenant and an admin user in the DB, returning both.
+// seedAdminUser creates a tenant and a domain admin user in the DB.
 func (ts *testServer) seedAdminUser(t *testing.T, tenantName, username, password string) (*repo.Tenant, *auth.User) {
+	t.Helper()
+	return ts.seedUserWithType(t, tenantName, username, password, auth.UserTypeAdmin)
+}
+
+// seedSuperadminUser creates a tenant and a superadmin user in the DB.
+// Use this for tests that exercise routes requiring superadmin access
+// (tenant create/update/delete).
+func (ts *testServer) seedSuperadminUser(t *testing.T, tenantName, username, password string) (*repo.Tenant, *auth.User) {
+	t.Helper()
+	return ts.seedUserWithType(t, tenantName, username, password, auth.UserTypeSuperAdmin)
+}
+
+// seedUserWithType is the shared implementation for seedAdminUser and seedSuperadminUser.
+func (ts *testServer) seedUserWithType(t *testing.T, tenantName, username, password string, userType auth.UserType) (*repo.Tenant, *auth.User) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -173,7 +187,7 @@ func (ts *testServer) seedAdminUser(t *testing.T, tenantName, username, password
 	if err != nil {
 		t.Fatalf("HashPassword: %v", err)
 	}
-	user, err := ts.authStore.CreateUser(ctx, tenant.ID, username, username+"@test.local", hash, auth.UserTypeAdmin)
+	user, err := ts.authStore.CreateUser(ctx, tenant.ID, username, username+"@test.local", hash, userType)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}

@@ -12,8 +12,8 @@ import (
 
 func TestTenants_List(t *testing.T) {
 	ts := newTestServer(t)
-	tenant, _ := ts.seedAdminUser(t, "Acme", "admin", "password")
-	token := ts.login(t, tenant.ID, "admin", "password")
+	tenant, _ := ts.seedSuperadminUser(t, "Acme", "superadmin", "password")
+	token := ts.login(t, tenant.ID, "superadmin", "password")
 
 	// Create a second tenant to ensure list returns multiple results.
 	ts.doJSON(t, http.MethodPost, "/api/v1/tenants", map[string]string{
@@ -45,8 +45,9 @@ func TestTenants_List(t *testing.T) {
 
 func TestTenants_Create(t *testing.T) {
 	ts := newTestServer(t)
-	tenant, _ := ts.seedAdminUser(t, "Acme", "admin", "password")
-	token := ts.login(t, tenant.ID, "admin", "password")
+	// Tenant create requires superadmin.
+	tenant, _ := ts.seedSuperadminUser(t, "System", "superadmin", "password")
+	token := ts.login(t, tenant.ID, "superadmin", "password")
 
 	var created map[string]any
 	resp := ts.doJSON(t, http.MethodPost, "/api/v1/tenants", map[string]string{
@@ -62,24 +63,42 @@ func TestTenants_Create(t *testing.T) {
 	if created["name"] != "New Tenant" {
 		t.Errorf("name: got %v, want 'New Tenant'", created["name"])
 	}
+	// Response must include one-time domain admin credentials.
+	if created["admin_username"] == nil {
+		t.Error("expected admin_username in create-tenant response")
+	}
+	if created["admin_password"] == nil {
+		t.Error("expected admin_password in create-tenant response")
+	}
 }
 
-func TestTenants_Create_RequiresAdmin(t *testing.T) {
+func TestTenants_Create_RequiresSuperAdmin(t *testing.T) {
 	ts := newTestServer(t)
 	tenant, _ := ts.seedAdminUser(t, "Acme", "admin", "password")
 
-	// Issue a JWT for a non-admin principal directly (bypasses the DB).
+	// A plain domain admin must be rejected (403).
+	adminToken, err := auth.NewJWT(testJWTSecret, 60,
+		"admin-id-1", tenant.ID, "admin", auth.UserTypeAdmin)
+	if err != nil {
+		t.Fatalf("NewJWT: %v", err)
+	}
+	resp := ts.doJSON(t, http.MethodPost, "/api/v1/tenants", map[string]string{
+		"name": "Sneaky Tenant",
+	}, bearer(adminToken), nil)
+	defer resp.Body.Close()
+	assertStatus(t, resp, http.StatusForbidden)
+
+	// A regular user must also be rejected (403).
 	userToken, err := auth.NewJWT(testJWTSecret, 60,
 		"user-id-1", tenant.ID, "regular", auth.UserTypeUser)
 	if err != nil {
 		t.Fatalf("NewJWT: %v", err)
 	}
-
-	resp := ts.doJSON(t, http.MethodPost, "/api/v1/tenants", map[string]string{
+	resp2 := ts.doJSON(t, http.MethodPost, "/api/v1/tenants", map[string]string{
 		"name": "Sneaky Tenant",
 	}, bearer(userToken), nil)
-	defer resp.Body.Close()
-	assertStatus(t, resp, http.StatusForbidden)
+	defer resp2.Body.Close()
+	assertStatus(t, resp2, http.StatusForbidden)
 }
 
 func TestTenants_Get(t *testing.T) {
@@ -114,8 +133,9 @@ func TestTenants_Get_NotFound(t *testing.T) {
 
 func TestTenants_Update(t *testing.T) {
 	ts := newTestServer(t)
-	tenant, _ := ts.seedAdminUser(t, "Old Name", "admin", "pass")
-	token := ts.login(t, tenant.ID, "admin", "pass")
+	// Tenant update requires superadmin.
+	tenant, _ := ts.seedSuperadminUser(t, "Old Name", "superadmin", "pass")
+	token := ts.login(t, tenant.ID, "superadmin", "pass")
 
 	var updated map[string]any
 	resp := ts.doJSON(t, http.MethodPut,
@@ -132,10 +152,11 @@ func TestTenants_Update(t *testing.T) {
 
 func TestTenants_Delete(t *testing.T) {
 	ts := newTestServer(t)
-	tenant, _ := ts.seedAdminUser(t, "DeleteMe", "admin", "pass")
-	token := ts.login(t, tenant.ID, "admin", "pass")
+	// Tenant delete requires superadmin.
+	tenant, _ := ts.seedSuperadminUser(t, "DeleteMe", "superadmin", "pass")
+	token := ts.login(t, tenant.ID, "superadmin", "pass")
 
-	// Delete the user's own tenant — same-tenant check passes.
+	// Superadmin deletes the tenant.
 	resp := ts.do(t, http.MethodDelete,
 		fmt.Sprintf("/api/v1/tenants/%s", tenant.ID),
 		nil, bearer(token))

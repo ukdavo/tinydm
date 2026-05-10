@@ -2,7 +2,9 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"time"
@@ -324,8 +326,10 @@ func (s *Store) GetUserRights(ctx context.Context, tenantID, userID string) ([]R
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
-// EnsureAdminUser creates the first admin user if no users exist in the DB.
-// This is a one-time bootstrap so a fresh deployment can be reached via the API.
+// EnsureAdminUser creates the global superadmin user if no users exist in the
+// DB. This is a one-time bootstrap so a fresh deployment can be reached via
+// the API. The superadmin lives in the system tenant and has unrestricted
+// access to all domains.
 func (s *Store) EnsureAdminUser(ctx context.Context, tenantID, tenantName, username, email, password string) error {
 	n, err := s.CountUsers(ctx)
 	if err != nil {
@@ -335,7 +339,7 @@ func (s *Store) EnsureAdminUser(ctx context.Context, tenantID, tenantName, usern
 		return nil // already bootstrapped
 	}
 
-	// Create the tenant if it doesn't exist.
+	// Create the system tenant if it doesn't exist.
 	var exists int
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tenants WHERE id = ?`, tenantID).Scan(&exists)
 	if exists == 0 {
@@ -345,7 +349,7 @@ func (s *Store) EnsureAdminUser(ctx context.Context, tenantID, tenantName, usern
 		}
 		if _, err := s.db.ExecContext(ctx,
 			`INSERT INTO tenants (id, name, description) VALUES (?, ?, ?)`,
-			tid, tenantName, "Default tenant",
+			tid, tenantName, "System tenant",
 		); err != nil {
 			return fmt.Errorf("create bootstrap tenant: %w", err)
 		}
@@ -357,13 +361,50 @@ func (s *Store) EnsureAdminUser(ctx context.Context, tenantID, tenantName, usern
 		return fmt.Errorf("hash bootstrap password: %w", err)
 	}
 
-	if _, err := s.CreateUser(ctx, tenantID, username, email, hash, UserTypeAdmin); err != nil {
-		return fmt.Errorf("create bootstrap admin: %w", err)
+	// The bootstrap user is a superadmin, not a plain domain admin.
+	if _, err := s.CreateUser(ctx, tenantID, username, email, hash, UserTypeSuperAdmin); err != nil {
+		return fmt.Errorf("create bootstrap superadmin: %w", err)
 	}
 	return nil
 }
 
+// CreateDomainAdmin creates a domain admin user for the given tenant and
+// returns the new user together with the plaintext password. The plaintext
+// password is generated internally using crypto/rand and is never persisted —
+// the caller is responsible for conveying it to the operator (e.g. in the
+// HTTP response for the tenant creation request).
+func (s *Store) CreateDomainAdmin(ctx context.Context, tenantID string) (*User, string, error) {
+	plaintext, err := generatePassword(20)
+	if err != nil {
+		return nil, "", fmt.Errorf("generate domain admin password: %w", err)
+	}
+	hash, err := HashPassword(plaintext)
+	if err != nil {
+		return nil, "", fmt.Errorf("hash domain admin password: %w", err)
+	}
+	user, err := s.CreateUser(ctx, tenantID, "admin", "", hash, UserTypeAdmin)
+	if err != nil {
+		return nil, "", fmt.Errorf("create domain admin: %w", err)
+	}
+	return user, plaintext, nil
+}
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
+
+// generatePassword returns a URL-safe random password of approximately n
+// printable characters, derived from crypto/rand bytes encoded as base64.
+func generatePassword(n int) (string, error) {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	// base64 URL encoding without padding gives ~4/3 × n characters; trim to n.
+	encoded := base64.URLEncoding.WithPadding(base64.NoPadding).EncodeToString(buf)
+	if len(encoded) > n {
+		encoded = encoded[:n]
+	}
+	return encoded, nil
+}
 
 func scanUser(row *sql.Row) (*User, error) {
 	var u User

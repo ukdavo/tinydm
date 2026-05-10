@@ -72,6 +72,11 @@ func TestPrincipal_IsAdmin(t *testing.T) {
 			want:      true,
 		},
 		{
+			name:      "superadmin user type",
+			principal: Principal{UserType: UserTypeSuperAdmin},
+			want:      true,
+		},
+		{
 			name:      "regular user type",
 			principal: Principal{UserType: UserTypeUser},
 			want:      false,

@@ -45,7 +45,28 @@ func RequireAuth(next http.Handler) http.Handler {
 	})
 }
 
+// RequireSuperAdmin rejects any principal that is not a superadmin (HTTP 403).
+// Use this on routes that manage tenants/domains — operations that must be
+// restricted to the global superadmin account.
+func RequireSuperAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, ok := PrincipalFromContext(r.Context())
+		if !ok {
+			w.Header().Set("Content-Type", "application/json")
+			http.Error(w, `{"error":"authentication required"}`, http.StatusUnauthorized)
+			return
+		}
+		if !p.IsSuperAdmin() {
+			w.Header().Set("Content-Type", "application/json")
+			http.Error(w, `{"error":"superadmin access required"}`, http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // RequireAdmin rejects non-admin principals with HTTP 403.
+// Both domain admins and superadmins satisfy this check.
 func RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p, ok := PrincipalFromContext(r.Context())

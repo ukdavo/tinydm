@@ -27,13 +27,18 @@ const maxJSONBytes = 1 << 20
 // a route group that has already resolved {tenantID} (i.e. after RequireAuth
 // and TenantCtx).
 //
-// This prevents cross-tenant data access: an admin authenticated against
-// tenant A cannot read or mutate tenant B's resources.
+// Superadmins are exempt: they manage all domains and are not scoped to any
+// single tenant. All other roles (admin, user) are strictly tenant-isolated.
 func RequireSameTenant(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p, ok := auth.PrincipalFromContext(r.Context())
 		if !ok {
 			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		// Superadmin has unrestricted cross-tenant access.
+		if p.IsSuperAdmin() {
+			next.ServeHTTP(w, r)
 			return
 		}
 		tenantID := chi.URLParam(r, "tenantID")
