@@ -91,7 +91,7 @@ func Load() (*Config, error) {
 
 		BootstrapTenantID:   getEnv("TINYDM_BOOTSTRAP_TENANT_ID", "default"),
 		BootstrapTenantName: getEnv("TINYDM_BOOTSTRAP_TENANT_NAME", "Default"),
-		BootstrapAdminUser:  getEnv("TINYDM_BOOTSTRAP_ADMIN_USER", "admin"),
+		BootstrapAdminUser:  getEnv("TINYDM_BOOTSTRAP_ADMIN_USER", "superadmin"),
 		BootstrapAdminEmail: getEnv("TINYDM_BOOTSTRAP_ADMIN_EMAIL", ""),
 		BootstrapAdminPass:  getEnv("TINYDM_BOOTSTRAP_ADMIN_PASS", ""),
 	}

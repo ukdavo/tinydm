@@ -164,9 +164,16 @@ func (s *Store) SetUserActive(ctx context.Context, id string, active bool) error
 	return err
 }
 
-// DeleteUser soft-deletes a user by ID.
+// DeleteUser soft-deletes a user by ID. Superadmin accounts cannot be deleted.
 func (s *Store) DeleteUser(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx,
+	u, err := s.GetUserByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	if u != nil && u.UserType == UserTypeSuperAdmin {
+		return fmt.Errorf("superadmin account cannot be deleted")
+	}
+	_, err = s.db.ExecContext(ctx,
 		`UPDATE users SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`,
 		id,
 	)

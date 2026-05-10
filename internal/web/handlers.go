@@ -609,7 +609,7 @@ func (h *Handler) deactivateUser(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) deleteUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "userID")
 	if err := h.auth.DeleteUser(r.Context(), id); err != nil {
-		http.Error(w, "delete failed", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
