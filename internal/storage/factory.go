@@ -19,6 +19,17 @@ type BackendConfig struct {
 	S3Endpoint string // custom endpoint URL — set for MinIO and S3-compatible services
 	S3KeyID    string // access key ID (required)
 	S3Secret   string // secret access key (required)
+
+	// Azure Blob Storage — used when Backend == "azure".
+	AzureAccount   string // storage account name (required)
+	AzureKey       string // storage account key (required)
+	AzureContainer string // blob container name (required)
+	AzureEndpoint  string // custom endpoint URL — set for Azurite; empty = real Azure
+
+	// Google Cloud Storage — used when Backend == "gcs".
+	GCSBucket          string // bucket name (required)
+	GCSProject         string // GCP project ID — used for bucket creation
+	GCSCredentialsFile string // path to service-account JSON; empty = Application Default Credentials
 }
 
 // New creates a Store from the supplied BackendConfig.
@@ -31,8 +42,10 @@ func New(cfg BackendConfig) (Store, error) {
 		return NewLocal(cfg.Path)
 	case "s3":
 		return NewS3(cfg.S3Bucket, cfg.S3Region, cfg.S3Endpoint, cfg.S3KeyID, cfg.S3Secret)
-	case "azure", "gcs":
-		return nil, fmt.Errorf("storage backend %q is planned but not yet implemented", cfg.Backend)
+	case "azure":
+		return NewAzure(cfg.AzureAccount, cfg.AzureKey, cfg.AzureContainer, cfg.AzureEndpoint)
+	case "gcs":
+		return NewGCS(cfg.GCSBucket, cfg.GCSProject, cfg.GCSCredentialsFile)
 	default:
 		return nil, fmt.Errorf("unknown storage backend %q: valid options are local, s3, azure, gcs", cfg.Backend)
 	}

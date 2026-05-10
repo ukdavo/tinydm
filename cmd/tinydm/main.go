@@ -74,13 +74,20 @@ func main() {
 
 	// ── Storage ───────────────────────────────────────────────────────────────
 	fileStore, err := storage.New(storage.BackendConfig{
-		Backend:    cfg.StorageBackend,
-		Path:       cfg.StoragePath,
-		S3Bucket:   cfg.S3Bucket,
-		S3Region:   cfg.S3Region,
-		S3Endpoint: cfg.S3Endpoint,
-		S3KeyID:    cfg.S3KeyID,
-		S3Secret:   cfg.S3Secret,
+		Backend:            cfg.StorageBackend,
+		Path:               cfg.StoragePath,
+		S3Bucket:           cfg.S3Bucket,
+		S3Region:           cfg.S3Region,
+		S3Endpoint:         cfg.S3Endpoint,
+		S3KeyID:            cfg.S3KeyID,
+		S3Secret:           cfg.S3Secret,
+		AzureAccount:       cfg.AzureAccount,
+		AzureKey:           cfg.AzureKey,
+		AzureContainer:     cfg.AzureContainer,
+		AzureEndpoint:      cfg.AzureEndpoint,
+		GCSBucket:          cfg.GCSBucket,
+		GCSProject:         cfg.GCSProject,
+		GCSCredentialsFile: cfg.GCSCredentialsFile,
 	})
 	if err != nil {
 		slog.Error("failed to initialise storage", "error", err, "backend", cfg.StorageBackend)

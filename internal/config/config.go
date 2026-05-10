@@ -36,6 +36,17 @@ type Config struct {
 	S3KeyID    string // TINYDM_S3_KEY_ID
 	S3Secret   string // TINYDM_S3_SECRET
 
+	// Azure Blob Storage — required when StorageBackend == "azure".
+	AzureAccount   string // TINYDM_AZURE_ACCOUNT — storage account name
+	AzureKey       string // TINYDM_AZURE_KEY — storage account key
+	AzureContainer string // TINYDM_AZURE_CONTAINER — blob container name
+	AzureEndpoint  string // TINYDM_AZURE_ENDPOINT — optional; set to e.g. "http://localhost:10000" for Azurite
+
+	// Google Cloud Storage — required when StorageBackend == "gcs".
+	GCSBucket          string // TINYDM_GCS_BUCKET
+	GCSProject         string // TINYDM_GCS_PROJECT — GCP project ID (used for bucket creation)
+	GCSCredentialsFile string // TINYDM_GCS_CREDENTIALS_FILE — path to service account JSON; empty = ADC
+
 	// Authentication
 	JWTSecret        string // TINYDM_JWT_SECRET — must be set; no default
 	JWTExpiryMinutes int    // TINYDM_JWT_EXPIRY_MINUTES (default: 60)
@@ -65,6 +76,13 @@ func Load() (*Config, error) {
 		S3Region:           getEnv("TINYDM_S3_REGION", "us-east-1"),
 		S3KeyID:            getEnv("TINYDM_S3_KEY_ID", ""),
 		S3Secret:           getEnv("TINYDM_S3_SECRET", ""),
+		AzureAccount:       getEnv("TINYDM_AZURE_ACCOUNT", ""),
+		AzureKey:           getEnv("TINYDM_AZURE_KEY", ""),
+		AzureContainer:     getEnv("TINYDM_AZURE_CONTAINER", ""),
+		AzureEndpoint:      getEnv("TINYDM_AZURE_ENDPOINT", ""),
+		GCSBucket:          getEnv("TINYDM_GCS_BUCKET", ""),
+		GCSProject:         getEnv("TINYDM_GCS_PROJECT", ""),
+		GCSCredentialsFile: getEnv("TINYDM_GCS_CREDENTIALS_FILE", ""),
 		JWTSecret:        getEnv("TINYDM_JWT_SECRET", ""),
 		JWTExpiryMinutes: getEnvInt("TINYDM_JWT_EXPIRY_MINUTES", 60),
 		SecureCookies:    getEnvBool("TINYDM_SECURE_COOKIES", false),
@@ -96,6 +114,22 @@ func Load() (*Config, error) {
 		}
 		if cfg.S3KeyID == "" || cfg.S3Secret == "" {
 			return nil, fmt.Errorf("TINYDM_S3_KEY_ID and TINYDM_S3_SECRET must be set when TINYDM_STORAGE_BACKEND=s3")
+		}
+	}
+	if cfg.StorageBackend == "azure" {
+		if cfg.AzureAccount == "" {
+			return nil, fmt.Errorf("TINYDM_AZURE_ACCOUNT must be set when TINYDM_STORAGE_BACKEND=azure")
+		}
+		if cfg.AzureKey == "" {
+			return nil, fmt.Errorf("TINYDM_AZURE_KEY must be set when TINYDM_STORAGE_BACKEND=azure")
+		}
+		if cfg.AzureContainer == "" {
+			return nil, fmt.Errorf("TINYDM_AZURE_CONTAINER must be set when TINYDM_STORAGE_BACKEND=azure")
+		}
+	}
+	if cfg.StorageBackend == "gcs" {
+		if cfg.GCSBucket == "" {
+			return nil, fmt.Errorf("TINYDM_GCS_BUCKET must be set when TINYDM_STORAGE_BACKEND=gcs")
 		}
 	}
 
