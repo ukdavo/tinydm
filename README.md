@@ -461,9 +461,9 @@ See [PLAN.md](./PLAN.md) for the full task-level breakdown, [DEPLOYMENT.md](./DE
 | 6 | Admin web UI (HTMX) | ✅ Done |
 | 7 | Document & bucket management UI — search, tags, properties, versions; REST + web UI pagination | ✅ Done |
 | 8 | Hardening — unit & integration tests, security review, cross-platform builds, PostgreSQL, OpenAPI docs, deployment guide, performance benchmarks | ✅ Done |
-| — | Document locking — pessimistic lock with owner + expiry | ⬜ Backlog |
+| 9 | Clustering — active-active HA + horizontal scale; S3 storage backend; distributed document locking; leader election; enhanced health check | ⬜ Planned |
+| — | Document locking (user-facing) — pessimistic lock with owner + expiry | ⬜ Backlog |
 | — | Full-text search — SQLite FTS5 or external engine | ⬜ Backlog |
-| — | Cloud storage backends — S3, NFS (storage interface already abstracted) | ⬜ Backlog |
 | — | OAuth / SSO — social login support | ⬜ Backlog |
 
 ---

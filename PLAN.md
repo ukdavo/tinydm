@@ -141,6 +141,47 @@ Testing, security, packaging, and documentation.
 
 ---
 
+## Phase 9 — Clustering (HA + Horizontal Scale)
+
+Active-active multi-node deployment. Any node can serve any request. Nodes share
+a common database and a common object store. Coordination (distributed locking,
+leader election) is implemented in a new `internal/cluster` package using the
+database as the coordination medium — no extra infrastructure required.
+
+### Design decisions
+
+| Concern | Decision | Rationale |
+|---------|----------|-----------|
+| File storage | S3-compatible backend (+ local fallback) | Nodes cannot share a local filesystem; S3 is already abstracted by `storage.Store` |
+| Database | PostgreSQL for clusters; SQLite stays for single-node | PG has advisory locks, concurrent writers, and connection pooling |
+| Document locking | PostgreSQL advisory locks via `cluster.Locker` interface | Serialises concurrent writes to the same document; no-op impl for SQLite |
+| Leader election | DB heartbeat table + advisory lock | Background tasks run on exactly one node; no extra service needed |
+| Session state | Already stateless (JWT) | No changes needed to auth layer |
+| Health check | Extended to probe DB + storage backend | Load balancer can route around degraded nodes |
+
+### New packages
+
+| Package | Responsibility |
+|---------|---------------|
+| `internal/cluster` | `Locker` interface, PG advisory lock impl, no-op impl, leader elector |
+| `internal/storage/s3.go` | `S3Store` — AWS SDK v2, MinIO-compatible endpoint, same content-addressed key layout |
+
+### Phase 9 tasks
+
+| # | Task | Status | Notes |
+|---|------|--------|-------|
+| 9.1 | S3 storage backend + tests | ⬜ | `internal/storage/s3.go` — `S3Store` satisfies `Store` interface; AWS SDK v2; custom endpoint for MinIO; same `ab/cd/abcdef…` key layout as local. Unit tests use `github.com/johannesboyne/gofakes3` in-process fake (no Docker); ships alongside the implementation |
+| 9.2 | Storage backend factory + config | ⬜ | `TINYDM_STORAGE_BACKEND=local\|s3`; `TINYDM_S3_BUCKET`, `TINYDM_S3_ENDPOINT`, `TINYDM_S3_REGION`, `TINYDM_S3_KEY_ID`, `TINYDM_S3_SECRET`; `storage.New(cfg)` used in `main.go` |
+| 9.3 | `cluster.Locker` interface + implementations | ⬜ | `Lock(ctx, key) (unlock func(), error)`; PG impl uses `pg_advisory_xact_lock(hashtext(key))`; no-op impl for SQLite/single-node; selected by DB driver at startup |
+| 9.4 | Wire document locking into write paths | ⬜ | Acquire lock before document `PUT`, version restore, and tag/property bulk replace; release on handler return |
+| 9.5 | Leader election — `cluster.LeaderElector` | ⬜ | `cluster_nodes` migration: `node_id`, `last_heartbeat`, `is_leader`; background goroutine heartbeats every 5 s; leader = node holding PG advisory lock `pg_try_advisory_lock(fixed_oid)`; `IsLeader() bool` used by background tasks |
+| 9.6 | Enhanced `/health` endpoint | ⬜ | DB ping + storage backend probe (`HeadBucket` for S3, `Stat` for local); response: `{"status":"ok\|degraded","db":"ok\|error","storage":"ok\|error","node_id":"…"}` |
+| 9.7 | Cluster docker-compose + nginx config | ⬜ | `docker-compose.cluster.yml`: 3 tinydm nodes + nginx upstream + postgres + MinIO; upstream health-check directive; sticky sessions not required (stateless JWT) |
+| 9.8 | Update DEPLOYMENT.md with cluster section | ⬜ | Multi-node setup, node ID config, S3/MinIO config, nginx upstream block, rolling upgrade procedure |
+| 9.9 | Cluster integration test | ⬜ | `test_cluster.sh`: start 2 nodes against shared DB + MinIO; upload via node 1; download via node 2; concurrent write conflict test |
+
+---
+
 ## Backlog — Future Features
 
 Items from the spec not in scope for the initial release.
@@ -171,3 +212,5 @@ Record of key technical decisions made during the project.
 | 2026-05-07 | File storage: content-addressed local FS | Deduplication, simple versioning, abstracted for S3/NFS later |
 | 2026-05-07 | Admin UI: HTMX + Go templates | No build step, embedded in binary, fits "simple admin" requirement |
 | 2026-05-07 | Auth: bcrypt + JWT + opaque API tokens | Standard, secure, no external dependencies |
+| 2026-05-10 | Cluster coordination: DB-based advisory locks | No extra infrastructure; PG advisory locks give automatic release on disconnect; no-op impl keeps SQLite working |
+| 2026-05-10 | S3 test strategy: gofakes3 in-process + MinIO for cluster tests | Unit tests stay hermetic (no Docker); cluster integration tests use real MinIO to match production behaviour |
