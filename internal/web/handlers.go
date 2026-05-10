@@ -586,10 +586,12 @@ func (h *Handler) createTenantUser(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenantID")
 	username := r.FormValue("username")
 	email := r.FormValue("email")
+	firstName := strings.TrimSpace(r.FormValue("first_name"))
+	lastName := strings.TrimSpace(r.FormValue("last_name"))
 	password := r.FormValue("password")
 	role := r.FormValue("role")
 
-	if username == "" || email == "" || password == "" {
+	if username == "" || email == "" || password == "" || firstName == "" || lastName == "" {
 		http.Error(w, "all fields required", http.StatusBadRequest)
 		return
 	}
@@ -605,12 +607,36 @@ func (h *Handler) createTenantUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.auth.CreateUser(r.Context(), tenantID, username, email, hash, userType)
+	user, err := h.auth.CreateUser(r.Context(), tenantID, username, email, firstName, lastName, hash, userType)
 	if err != nil {
 		http.Error(w, "create failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	h.renderPartial(w, "users", "user-row", user)
+}
+
+// changeUserPassword handles POST /admin/users/{userID}/password
+//
+// Reads the new password from the form body, validates a minimum length of 8,
+// hashes it, and updates the user. On success returns 200 with empty body so
+// HTMX can close the modal client-side.
+func (h *Handler) changeUserPassword(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "userID")
+	password := r.FormValue("password")
+	if len(password) < 8 {
+		http.Error(w, "password must be at least 8 characters", http.StatusBadRequest)
+		return
+	}
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := h.auth.ChangePassword(r.Context(), id, hash); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *Handler) activateUser(w http.ResponseWriter, r *http.Request) {

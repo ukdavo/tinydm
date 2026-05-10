@@ -65,6 +65,7 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 
 				// Users — domain admin or superadmin
 				r.With(auth.RequireAdmin).Get("/users", userHandler.ListUsers)
+				r.With(auth.RequireAdmin).Patch("/users/{userID}/password", userHandler.ChangePassword)
 
 				// API keys — domain admin or superadmin
 				r.With(auth.RequireAdmin).Get("/apikeys", userHandler.ListAPIKeys)

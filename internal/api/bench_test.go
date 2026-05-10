@@ -87,7 +87,7 @@ func newBenchServer(b *testing.B) *benchServer {
 	if err != nil {
 		b.Fatalf("HashPassword: %v", err)
 	}
-	_, err = authStore.CreateUser(ctx, tenant.ID, "bench-admin", "bench@test.local", hash, auth.UserTypeAdmin)
+	_, err = authStore.CreateUser(ctx, tenant.ID, "bench-admin", "bench@test.local", "Bench", "Admin", hash, auth.UserTypeAdmin)
 	if err != nil {
 		b.Fatalf("CreateUser: %v", err)
 	}

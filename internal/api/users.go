@@ -38,25 +38,60 @@ func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	// Strip password hashes before returning.
 	type safeUser struct {
-		ID       string `json:"id"`
-		TenantID string `json:"tenant_id"`
-		Username string `json:"username"`
-		Email    string `json:"email"`
-		UserType string `json:"user_type"`
-		IsActive bool   `json:"is_active"`
+		ID        string `json:"id"`
+		TenantID  string `json:"tenant_id"`
+		Username  string `json:"username"`
+		Email     string `json:"email"`
+		FirstName string `json:"first_name"`
+		LastName  string `json:"last_name"`
+		UserType  string `json:"user_type"`
+		IsActive  bool   `json:"is_active"`
 	}
 	safe := make([]safeUser, len(users))
 	for i, u := range users {
 		safe[i] = safeUser{
-			ID:       u.ID,
-			TenantID: u.TenantID,
-			Username: u.Username,
-			Email:    u.Email,
-			UserType: string(u.UserType),
-			IsActive: u.IsActive,
+			ID:        u.ID,
+			TenantID:  u.TenantID,
+			Username:  u.Username,
+			Email:     u.Email,
+			FirstName: u.FirstName,
+			LastName:  u.LastName,
+			UserType:  string(u.UserType),
+			IsActive:  u.IsActive,
 		}
 	}
 	writePaged(w, safe, total, page.Limit, page.Offset)
+}
+
+// ChangePassword handles PATCH /api/v1/tenants/{tenantID}/users/{userID}/password
+//
+// Restricted to admin/superadmin (route registration enforces this). Requires
+// a JSON body of {"password": "..."} with at least 8 characters.
+func (h *UserHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	userID := chi.URLParam(r, "userID")
+
+	var body struct {
+		Password string `json:"password"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(body.Password) < 8 {
+		writeError(w, http.StatusBadRequest, "password must be at least 8 characters")
+		return
+	}
+
+	hash, err := auth.HashPassword(body.Password)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if err := h.store.ChangePassword(r.Context(), userID, hash); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ListAPIKeys handles GET /api/v1/tenants/{tenantID}/apikeys

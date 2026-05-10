@@ -89,7 +89,7 @@ func TestDeleteUser_RejectsSuperadmin(t *testing.T) {
 	seedTenant(t, s, "tenant-sys")
 
 	hash, _ := HashPassword("secret")
-	superadmin, err := s.CreateUser(ctx, "tenant-sys", "superadmin", "", hash, UserTypeSuperAdmin)
+	superadmin, err := s.CreateUser(ctx, "tenant-sys", "superadmin", "", "Super", "Admin", hash, UserTypeSuperAdmin)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestDeleteUser_AllowsRegularUser(t *testing.T) {
 	seedTenant(t, s, "tenant-1")
 
 	hash, _ := HashPassword("secret")
-	user, err := s.CreateUser(ctx, "tenant-1", "alice", "", hash, UserTypeUser)
+	user, err := s.CreateUser(ctx, "tenant-1", "alice", "", "Alice", "Smith", hash, UserTypeUser)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestSetUserActive_RejectsSuperadminDeactivation(t *testing.T) {
 	seedTenant(t, s, "tenant-sys")
 
 	hash, _ := HashPassword("secret")
-	superadmin, err := s.CreateUser(ctx, "tenant-sys", "superadmin", "", hash, UserTypeSuperAdmin)
+	superadmin, err := s.CreateUser(ctx, "tenant-sys", "superadmin", "", "Super", "Admin", hash, UserTypeSuperAdmin)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestSetUserActive_RejectsDomainAdminDeactivation(t *testing.T) {
 	seedTenant(t, s, "tenant-1")
 
 	hash, _ := HashPassword("secret")
-	admin, err := s.CreateUser(ctx, "tenant-1", "admin", "", hash, UserTypeAdmin)
+	admin, err := s.CreateUser(ctx, "tenant-1", "admin", "", "Domain", "Admin", hash, UserTypeAdmin)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestSetUserActive_AllowsRegularUserDeactivation(t *testing.T) {
 	seedTenant(t, s, "tenant-1")
 
 	hash, _ := HashPassword("secret")
-	user, err := s.CreateUser(ctx, "tenant-1", "alice", "", hash, UserTypeUser)
+	user, err := s.CreateUser(ctx, "tenant-1", "alice", "", "Alice", "Smith", hash, UserTypeUser)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestSetUserActive_AllowsReactivation(t *testing.T) {
 	seedTenant(t, s, "tenant-1")
 
 	hash, _ := HashPassword("secret")
-	user, err := s.CreateUser(ctx, "tenant-1", "alice", "", hash, UserTypeUser)
+	user, err := s.CreateUser(ctx, "tenant-1", "alice", "", "Alice", "Smith", hash, UserTypeUser)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -178,5 +178,92 @@ func TestSetUserActive_AllowsReactivation(t *testing.T) {
 	}
 	if err := s.SetUserActive(ctx, user.ID, true); err != nil {
 		t.Errorf("unexpected error reactivating user: %v", err)
+	}
+}
+
+func TestCreateUser_PersistsFirstAndLastName(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedTenant(t, s, "tenant-1")
+
+	hash, _ := HashPassword("secret")
+	user, err := s.CreateUser(ctx, "tenant-1", "alice", "alice@example.com", "Alice", "Smith", hash, UserTypeUser)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if user.FirstName != "Alice" {
+		t.Errorf("first_name: got %q, want %q", user.FirstName, "Alice")
+	}
+	if user.LastName != "Smith" {
+		t.Errorf("last_name: got %q, want %q", user.LastName, "Smith")
+	}
+
+	// Round-trip via GetUserByID.
+	again, err := s.GetUserByID(ctx, user.ID)
+	if err != nil || again == nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if again.FirstName != "Alice" || again.LastName != "Smith" {
+		t.Errorf("round-trip: got %q %q, want Alice Smith", again.FirstName, again.LastName)
+	}
+}
+
+func TestListUsers_ReturnsFirstAndLastName(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedTenant(t, s, "tenant-1")
+
+	hash, _ := HashPassword("secret")
+	if _, err := s.CreateUser(ctx, "tenant-1", "alice", "", "Alice", "Smith", hash, UserTypeUser); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	users, _, err := s.ListUsers(ctx, "tenant-1", 0, 0)
+	if err != nil {
+		t.Fatalf("ListUsers: %v", err)
+	}
+	if len(users) != 1 {
+		t.Fatalf("got %d users, want 1", len(users))
+	}
+	if users[0].FirstName != "Alice" || users[0].LastName != "Smith" {
+		t.Errorf("ListUsers names: got %q %q, want Alice Smith", users[0].FirstName, users[0].LastName)
+	}
+}
+
+func TestChangePassword_UpdatesHash(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedTenant(t, s, "tenant-1")
+
+	oldHash, _ := HashPassword("oldpass")
+	user, err := s.CreateUser(ctx, "tenant-1", "alice", "", "Alice", "Smith", oldHash, UserTypeUser)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	newHash, _ := HashPassword("newpass")
+	if err := s.ChangePassword(ctx, user.ID, newHash); err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+
+	updated, err := s.GetUserByID(ctx, user.ID)
+	if err != nil || updated == nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if err := CheckPassword(updated.PasswordHash, "newpass"); err != nil {
+		t.Errorf("new password does not authenticate: %v", err)
+	}
+	if err := CheckPassword(updated.PasswordHash, "oldpass"); err == nil {
+		t.Error("old password still authenticates after change")
+	}
+}
+
+func TestChangePassword_UnknownUserReturnsError(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	hash, _ := HashPassword("anything")
+	if err := s.ChangePassword(ctx, "no-such-user", hash); err == nil {
+		t.Error("expected error for unknown user, got nil")
 	}
 }

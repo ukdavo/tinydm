@@ -18,6 +18,7 @@
       <thead>
         <tr>
           <th>Username</th>
+          <th>Name</th>
           <th>Email</th>
           <th>Role</th>
           <th>Status</th>
@@ -42,6 +43,14 @@
       <input type="text" name="username" id="new-user-name" placeholder="jdoe" required>
     </div>
     <div class="form-group">
+      <label>First Name</label>
+      <input type="text" name="first_name" id="new-user-first" placeholder="Jane" required>
+    </div>
+    <div class="form-group">
+      <label>Last Name</label>
+      <input type="text" name="last_name" id="new-user-last" placeholder="Doe" required>
+    </div>
+    <div class="form-group">
       <label>Email</label>
       <input type="email" name="email" id="new-user-email" placeholder="jdoe@example.com" required>
     </div>
@@ -58,7 +67,7 @@
     </div>
     <button class="btn btn-primary"
       hx-post="/admin/tenants/{{.Tenant.ID}}/users"
-      hx-include="#new-user-name,#new-user-email,#new-user-pass,#new-user-role"
+      hx-include="#new-user-name,#new-user-first,#new-user-last,#new-user-email,#new-user-pass,#new-user-role"
       hx-target="#users-list"
       hx-swap="beforeend"
       hx-on::after-request="this.closest('.inline-form').querySelectorAll('input').forEach(i=>i.value='')">
@@ -72,6 +81,7 @@
 {{define "user-row"}}
 <tr id="user-{{.ID}}">
   <td><strong>{{.Username}}</strong></td>
+  <td>{{.FirstName}} {{.LastName}}</td>
   <td class="muted">{{.Email}}</td>
   <td>
     {{if eq (string .UserType) "superadmin"}}
@@ -91,6 +101,10 @@
   </td>
   <td class="text-right">
     <div class="flex gap-8 items-center" style="justify-content:flex-end;">
+      <button class="btn btn-ghost btn-sm"
+        onclick="document.getElementById('pwd-modal-{{.ID}}').showModal()">
+        Change Password
+      </button>
       {{if eq (string .UserType) "user"}}
         {{if .IsActive}}
         <button class="btn btn-ghost btn-sm"
@@ -116,6 +130,28 @@
         </button>
       {{end}}
     </div>
+
+    <dialog id="pwd-modal-{{.ID}}" class="pwd-dialog">
+      <form method="dialog">
+        <h3>Change Password — {{.Username}}</h3>
+        <div class="form-group">
+          <input type="password" name="password" id="pwd-{{.ID}}"
+                 placeholder="New password (8+ chars)" required minlength="8" autocomplete="new-password">
+        </div>
+        <div id="pwd-err-{{.ID}}" class="error-text"></div>
+        <div class="flex gap-8" style="justify-content:flex-end;">
+          <button class="btn btn-ghost" value="cancel">Cancel</button>
+          <button type="button" class="btn btn-primary"
+            hx-post="/admin/users/{{.ID}}/password"
+            hx-include="#pwd-{{.ID}}"
+            hx-target="#pwd-err-{{.ID}}"
+            hx-swap="innerHTML"
+            hx-on::after-request="if(event.detail.successful){document.getElementById('pwd-modal-{{.ID}}').close();document.getElementById('pwd-{{.ID}}').value='';}">
+            Save
+          </button>
+        </div>
+      </form>
+    </dialog>
   </td>
 </tr>
 {{end}}

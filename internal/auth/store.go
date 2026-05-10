@@ -20,6 +20,8 @@ type User struct {
 	TenantID     string
 	Username     string
 	Email        string
+	FirstName    string
+	LastName     string
 	PasswordHash string
 	UserType     UserType
 	IsActive     bool
@@ -65,7 +67,7 @@ func NewStore(database *db.DB) *Store {
 // GetUserByUsername fetches an active user by tenant + username.
 func (s *Store) GetUserByUsername(ctx context.Context, tenantID, username string) (*User, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, tenant_id, username, email, password_hash, user_type, is_active
+		SELECT id, tenant_id, username, email, first_name, last_name, password_hash, user_type, is_active
 		FROM users
 		WHERE tenant_id = ? AND username = ? AND deleted_at IS NULL`,
 		tenantID, username,
@@ -76,7 +78,7 @@ func (s *Store) GetUserByUsername(ctx context.Context, tenantID, username string
 // GetUserByID fetches an active user by primary key.
 func (s *Store) GetUserByID(ctx context.Context, id string) (*User, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, tenant_id, username, email, password_hash, user_type, is_active
+		SELECT id, tenant_id, username, email, first_name, last_name, password_hash, user_type, is_active
 		FROM users
 		WHERE id = ? AND deleted_at IS NULL`,
 		id,
@@ -85,17 +87,36 @@ func (s *Store) GetUserByID(ctx context.Context, id string) (*User, error) {
 }
 
 // CreateUser inserts a new user row. The password must already be hashed.
-func (s *Store) CreateUser(ctx context.Context, tenantID, username, email, passwordHash string, userType UserType) (*User, error) {
+func (s *Store) CreateUser(ctx context.Context, tenantID, username, email, firstName, lastName, passwordHash string, userType UserType) (*User, error) {
 	id := uuid.New().String()
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO users (id, tenant_id, username, email, password_hash, user_type)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		id, tenantID, username, email, passwordHash, string(userType),
+		INSERT INTO users (id, tenant_id, username, email, first_name, last_name, password_hash, user_type)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, tenantID, username, email, firstName, lastName, passwordHash, string(userType),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}
 	return s.GetUserByID(ctx, id)
+}
+
+// ChangePassword updates the password hash for an existing, non-deleted user.
+// Returns an error if the user does not exist or has been soft-deleted.
+func (s *Store) ChangePassword(ctx context.Context, userID, newHash string) error {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE users
+		SET password_hash = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? AND deleted_at IS NULL`,
+		newHash, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("change password: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("user not found")
+	}
+	return nil
 }
 
 // CountUsers returns the total number of non-deleted users across all tenants.
@@ -125,7 +146,7 @@ func (s *Store) ListUsers(ctx context.Context, tenantID string, limit, offset in
 		return nil, 0, fmt.Errorf("count users: %w", err)
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, tenant_id, username, email, password_hash, user_type, is_active
+		SELECT id, tenant_id, username, email, first_name, last_name, password_hash, user_type, is_active
 		FROM users
 		WHERE tenant_id = ? AND deleted_at IS NULL
 		ORDER BY username
@@ -142,6 +163,7 @@ func (s *Store) ListUsers(ctx context.Context, tenantID string, limit, offset in
 		var u User
 		var isActive int
 		if err := rows.Scan(&u.ID, &u.TenantID, &u.Username, &u.Email,
+			&u.FirstName, &u.LastName,
 			&u.PasswordHash, &u.UserType, &isActive); err != nil {
 			return nil, 0, fmt.Errorf("scan user: %w", err)
 		}
@@ -388,7 +410,7 @@ func (s *Store) EnsureAdminUser(ctx context.Context, tenantID, tenantName, usern
 	}
 
 	// The bootstrap user is a superadmin, not a plain domain admin.
-	if _, err := s.CreateUser(ctx, tenantID, username, email, hash, UserTypeSuperAdmin); err != nil {
+	if _, err := s.CreateUser(ctx, tenantID, username, email, "Super", "Admin", hash, UserTypeSuperAdmin); err != nil {
 		return "", fmt.Errorf("create bootstrap superadmin: %w", err)
 	}
 
@@ -415,7 +437,7 @@ func (s *Store) CreateDomainAdmin(ctx context.Context, tenantID string) (*User, 
 	if err != nil {
 		return nil, "", fmt.Errorf("hash domain admin password: %w", err)
 	}
-	user, err := s.CreateUser(ctx, tenantID, "admin", "", hash, UserTypeAdmin)
+	user, err := s.CreateUser(ctx, tenantID, "admin", "", "Domain", "Admin", hash, UserTypeAdmin)
 	if err != nil {
 		return nil, "", fmt.Errorf("create domain admin: %w", err)
 	}
@@ -444,6 +466,7 @@ func scanUser(row *sql.Row) (*User, error) {
 	var isActive int
 	if err := row.Scan(
 		&u.ID, &u.TenantID, &u.Username, &u.Email,
+		&u.FirstName, &u.LastName,
 		&u.PasswordHash, &u.UserType, &isActive,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

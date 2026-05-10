@@ -187,7 +187,7 @@ func (ts *testServer) seedUserWithType(t *testing.T, tenantName, username, passw
 	if err != nil {
 		t.Fatalf("HashPassword: %v", err)
 	}
-	user, err := ts.authStore.CreateUser(ctx, tenant.ID, username, username+"@test.local", hash, userType)
+	user, err := ts.authStore.CreateUser(ctx, tenant.ID, username, username+"@test.local", "Test", "User", hash, userType)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
