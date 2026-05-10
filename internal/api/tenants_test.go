@@ -72,6 +72,33 @@ func TestTenants_Create(t *testing.T) {
 	}
 }
 
+func TestTenants_Create_DomainAdminCanLogin(t *testing.T) {
+	ts := newTestServer(t)
+	tenant, _ := ts.seedSuperadminUser(t, "System", "superadmin", "password")
+	token := ts.login(t, tenant.ID, "superadmin", "password")
+
+	var created map[string]any
+	resp := ts.doJSON(t, http.MethodPost, "/api/v1/tenants", map[string]string{
+		"name": "Login Test Tenant",
+	}, bearer(token), &created)
+	defer resp.Body.Close()
+	assertStatus(t, resp, http.StatusCreated)
+
+	newTenantID, _ := created["id"].(string)
+	adminUsername, _ := created["admin_username"].(string)
+	adminPassword, _ := created["admin_password"].(string)
+
+	if newTenantID == "" || adminUsername == "" || adminPassword == "" {
+		t.Fatalf("missing fields in create-tenant response: %v", created)
+	}
+
+	// The returned credentials must work against the login endpoint.
+	adminToken := ts.login(t, newTenantID, adminUsername, adminPassword)
+	if adminToken == "" {
+		t.Error("domain admin login returned empty token")
+	}
+}
+
 func TestTenants_Create_RequiresSuperAdmin(t *testing.T) {
 	ts := newTestServer(t)
 	tenant, _ := ts.seedAdminUser(t, "Acme", "admin", "password")
