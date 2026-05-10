@@ -8,7 +8,10 @@
 
 <div class="page-header">
   <div><h1>Projects</h1><p>Tenant: <strong>{{.Tenant.ID}}</strong></p></div>
-  <div><a class="btn btn-ghost btn-sm" href="/admin/tenants/{{.Tenant.ID}}/users">Users</a></div>
+  <div style="display:flex;gap:8px;">
+    <a class="btn btn-ghost btn-sm" href="/admin/tenants/{{.Tenant.ID}}/users">Users</a>
+    <a class="btn btn-ghost btn-sm" href="/admin/tenants/{{.Tenant.ID}}/apikeys">API Keys</a>
+  </div>
 </div>
 
 <div class="card">

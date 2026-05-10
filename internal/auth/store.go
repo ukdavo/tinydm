@@ -279,13 +279,22 @@ func (s *Store) ListAPIKeys(ctx context.Context, tenantID string, limit, offset 
 	return keys, total, rows.Err()
 }
 
-// RevokeAPIKey sets revoked_at to now for the given key ID.
-func (s *Store) RevokeAPIKey(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE api_keys SET revoked_at = CURRENT_TIMESTAMP WHERE id = ? AND revoked_at IS NULL`,
-		id,
+// RevokeAPIKey sets revoked_at to now for the given key ID. The tenantID is
+// used to ensure the key belongs to the caller's domain.
+func (s *Store) RevokeAPIKey(ctx context.Context, tenantID, id string) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE api_keys SET revoked_at = CURRENT_TIMESTAMP
+		 WHERE id = ? AND tenant_id = ? AND revoked_at IS NULL`,
+		id, tenantID,
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("revoke api key: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("api key not found or already revoked")
+	}
+	return nil
 }
 
 // TouchAPIKey updates last_used_at for a key. Errors are intentionally ignored

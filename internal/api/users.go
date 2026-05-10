@@ -3,6 +3,8 @@ package api
 import (
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+
 	"tinydm/internal/auth"
 )
 
@@ -92,4 +94,55 @@ func (h *UserHandler) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writePaged(w, safe, total, page.Limit, page.Offset)
+}
+
+// CreateAPIKey handles POST /api/v1/tenants/{tenantID}/apikeys
+func (h *UserHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
+	tenant := tenantFromCtx(r)
+	p, _ := auth.PrincipalFromContext(r.Context())
+
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+
+	plaintext, hash, prefix, err := auth.GenerateAPIKey()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "key generation failed")
+		return
+	}
+
+	uid := p.ID
+	key, err := h.store.CreateAPIKey(r.Context(), tenant.ID, &uid, body.Name, hash, prefix, nil)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"id":         key.ID,
+		"tenant_id":  key.TenantID,
+		"name":       key.Name,
+		"key_prefix": key.KeyPrefix,
+		"key":        plaintext, // one-time plaintext; not stored
+	})
+}
+
+// RevokeAPIKey handles POST /api/v1/tenants/{tenantID}/apikeys/{keyID}/revoke
+func (h *UserHandler) RevokeAPIKey(w http.ResponseWriter, r *http.Request) {
+	tenant := tenantFromCtx(r)
+	id := chi.URLParam(r, "keyID")
+
+	if err := h.store.RevokeAPIKey(r.Context(), tenant.ID, id); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

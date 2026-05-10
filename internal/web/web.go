@@ -159,10 +159,10 @@ func RegisterRoutes(r chi.Router, h *Handler) {
 		r.Post("/admin/users/{userID}/deactivate", h.deactivateUser)
 		r.Delete("/admin/users/{userID}", h.deleteUser)
 
-		// API keys
-		r.Get("/admin/apikeys", h.apiKeys)
-		r.Post("/admin/apikeys", h.createAPIKey)
-		r.Post("/admin/apikeys/{keyID}/revoke", h.revokeAPIKey)
+		// API keys — scoped to tenant
+		r.Get("/admin/tenants/{tenantID}/apikeys", h.tenantAPIKeys)
+		r.Post("/admin/tenants/{tenantID}/apikeys", h.createTenantAPIKey)
+		r.Post("/admin/tenants/{tenantID}/apikeys/{keyID}/revoke", h.revokeTenantAPIKey)
 
 		// Audit log
 		r.Get("/admin/audit", h.auditLog)

@@ -63,9 +63,13 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 				// Audit log — domain admin or superadmin
 				r.With(auth.RequireAdmin).Get("/audit", auditHandler.List)
 
-				// Users & API keys — domain admin or superadmin
+				// Users — domain admin or superadmin
 				r.With(auth.RequireAdmin).Get("/users", userHandler.ListUsers)
+
+				// API keys — domain admin or superadmin
 				r.With(auth.RequireAdmin).Get("/apikeys", userHandler.ListAPIKeys)
+				r.With(auth.RequireAdmin).Post("/apikeys", userHandler.CreateAPIKey)
+				r.With(auth.RequireAdmin).Post("/apikeys/{keyID}/revoke", userHandler.RevokeAPIKey)
 
 				// Projects — list/read: any user; create/update/delete: admin+
 				r.Get("/projects", projectHandler.List)

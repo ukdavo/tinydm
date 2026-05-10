@@ -1,7 +1,15 @@
 {{define "title"}}API Keys{{end}}
 {{define "content"}}
+<div class="breadcrumb">
+  <a href="/admin/tenants">Tenants</a>
+  <span class="sep">›</span>
+  <a href="/admin/tenants/{{.Tenant.ID}}/projects">{{.Tenant.Name}}</a>
+  <span class="sep">›</span>
+  <span class="current">API Keys</span>
+</div>
+
 <div class="page-header">
-  <div><h1>API Keys</h1><p>Manage API keys for tenant <strong>{{.Principal.TenantID}}</strong></p></div>
+  <div><h1>API Keys</h1><p>Tenant: <strong>{{.Tenant.ID}}</strong></p></div>
 </div>
 
 {{if .NewKey}}
@@ -46,7 +54,7 @@
       <input type="text" name="name" id="new-key-name" placeholder="ci-deploy" required>
     </div>
     <button class="btn btn-primary"
-      hx-post="/admin/apikeys"
+      hx-post="/admin/tenants/{{.Tenant.ID}}/apikeys"
       hx-include="#new-key-name"
       hx-target="body"
       hx-push-url="true"
@@ -75,7 +83,7 @@
   <td class="text-right">
     {{if not .RevokedAt.Valid}}
     <button class="btn btn-danger btn-sm"
-      hx-post="/admin/apikeys/{{.ID}}/revoke"
+      hx-post="/admin/tenants/{{.TenantID}}/apikeys/{{.ID}}/revoke"
       hx-target="#key-{{.ID}}"
       hx-swap="outerHTML"
       hx-confirm="Revoke key '{{.Name}}'? This cannot be undone.">

@@ -654,23 +654,36 @@ func (h *Handler) deleteUser(w http.ResponseWriter, r *http.Request) {
 
 type apiKeysData struct {
 	basePage
+	Tenant *repo.Tenant
 	Keys   []*auth.APIKey
 	NewKey string // only set immediately after creation
 	Pager  WebPagination
 }
 
-func (h *Handler) apiKeys(w http.ResponseWriter, r *http.Request) {
-	p, _ := auth.PrincipalFromContext(r.Context())
+func (h *Handler) tenantAPIKeys(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	tenant, err := h.repo.GetTenant(r.Context(), tenantID)
+	if err != nil || tenant == nil {
+		http.NotFound(w, r)
+		return
+	}
 	page, limit := parsePage(r)
-	keys, total, _ := h.auth.ListAPIKeys(r.Context(), p.TenantID, limit, pageOffset(page, limit))
+	keys, total, _ := h.auth.ListAPIKeys(r.Context(), tenantID, limit, pageOffset(page, limit))
 	h.render(w, "apikeys", apiKeysData{
 		basePage: h.base(r, "apikeys"),
+		Tenant:   tenant,
 		Keys:     keys,
 		Pager:    newWebPagination(total, page, limit, ""),
 	})
 }
 
-func (h *Handler) createAPIKey(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) createTenantAPIKey(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	tenant, err := h.repo.GetTenant(r.Context(), tenantID)
+	if err != nil || tenant == nil {
+		http.NotFound(w, r)
+		return
+	}
 	p, _ := auth.PrincipalFromContext(r.Context())
 	name := r.FormValue("name")
 	if name == "" {
@@ -684,32 +697,33 @@ func (h *Handler) createAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	uid := p.ID
-	if _, err = h.auth.CreateAPIKey(r.Context(), p.TenantID, &uid, name, hash, prefix, nil); err != nil {
+	if _, err = h.auth.CreateAPIKey(r.Context(), tenantID, &uid, name, hash, prefix, nil); err != nil {
 		http.Error(w, "create failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Return the full page so the new key can be displayed once (always page 1).
-	keys, total, _ := h.auth.ListAPIKeys(r.Context(), p.TenantID, 50, 0)
+	// Re-render the full page so the new key is displayed once.
+	keys, total, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 50, 0)
 	h.render(w, "apikeys", apiKeysData{
 		basePage: h.base(r, "apikeys"),
+		Tenant:   tenant,
 		Keys:     keys,
 		NewKey:   plaintext,
 		Pager:    newWebPagination(total, 1, 50, ""),
 	})
 }
 
-func (h *Handler) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) revokeTenantAPIKey(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
 	id := chi.URLParam(r, "keyID")
-	p, _ := auth.PrincipalFromContext(r.Context())
 
-	if err := h.auth.RevokeAPIKey(r.Context(), id); err != nil {
-		http.Error(w, "revoke failed", http.StatusInternalServerError)
+	if err := h.auth.RevokeAPIKey(r.Context(), tenantID, id); err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
-	// Find and return the updated row.
-	keys, _, _ := h.auth.ListAPIKeys(r.Context(), p.TenantID, 500, 0)
+	// Return the updated row.
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
 	for _, k := range keys {
 		if k.ID == id {
 			h.renderPartial(w, "apikeys", "apikey-row", k)
