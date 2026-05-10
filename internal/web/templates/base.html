@@ -56,6 +56,7 @@
     <main class="content" id="main-content">
       {{if .Flash}}<div class="flash flash-ok">{{.Flash}}</div>{{end}}
       {{if .Error}}<div class="flash flash-err">{{.Error}}</div>{{end}}
+      <div id="oob-notice"></div>
       {{block "content" .}}{{end}}
     </main>
   </div>

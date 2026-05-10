@@ -50,6 +50,16 @@
 {{template "pagination" .Pager}}
 {{end}}
 
+{{define "tenant-created-notice"}}
+<div id="oob-notice" hx-swap-oob="true">
+  <div class="flash flash-ok">
+    <strong>Domain admin created.</strong>
+    Username: <code>{{.Username}}</code> &nbsp;·&nbsp; Password: <code>{{.Password}}</code>
+    <br><small>This password will not be shown again — copy it now.</small>
+  </div>
+</div>
+{{end}}
+
 {{define "tenant-row"}}
 <tr id="tenant-{{.ID}}">
   <td class="mono">{{.ID}}</td>

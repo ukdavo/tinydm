@@ -262,7 +262,19 @@ func (h *Handler) createTenant(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "create failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.renderPartial(w, "tenants", "tenant-row", t)
+	adminUser, adminPass, err := h.auth.CreateDomainAdmin(r.Context(), t.ID)
+	if err != nil {
+		http.Error(w, "tenant created but failed to provision domain admin: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tmpl, ok := h.tmpls["tenants"]
+	if !ok {
+		http.Error(w, "template not found", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = tmpl.ExecuteTemplate(w, "tenant-row", t)
+	_ = tmpl.ExecuteTemplate(w, "tenant-created-notice", struct{ Username, Password string }{adminUser.Username, adminPass})
 }
 
 func (h *Handler) deleteTenant(w http.ResponseWriter, r *http.Request) {
