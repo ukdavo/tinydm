@@ -91,29 +91,29 @@
   </td>
   <td class="text-right">
     <div class="flex gap-8 items-center" style="justify-content:flex-end;">
-      {{if .IsActive}}
-      <button class="btn btn-ghost btn-sm"
-        hx-post="/admin/users/{{.ID}}/deactivate"
-        hx-target="#user-{{.ID}}"
-        hx-swap="outerHTML">
-        Deactivate
-      </button>
-      {{else}}
-      <button class="btn btn-ghost btn-sm"
-        hx-post="/admin/users/{{.ID}}/activate"
-        hx-target="#user-{{.ID}}"
-        hx-swap="outerHTML">
-        Activate
-      </button>
-      {{end}}
-      {{if ne (string .UserType) "superadmin"}}
-      <button class="btn btn-danger btn-sm"
-        hx-delete="/admin/users/{{.ID}}"
-        hx-target="#user-{{.ID}}"
-        hx-swap="outerHTML"
-        hx-confirm="Delete user '{{.Username}}'?">
-        Delete
-      </button>
+      {{if eq (string .UserType) "user"}}
+        {{if .IsActive}}
+        <button class="btn btn-ghost btn-sm"
+          hx-post="/admin/users/{{.ID}}/deactivate"
+          hx-target="#user-{{.ID}}"
+          hx-swap="outerHTML">
+          Deactivate
+        </button>
+        {{else}}
+        <button class="btn btn-ghost btn-sm"
+          hx-post="/admin/users/{{.ID}}/activate"
+          hx-target="#user-{{.ID}}"
+          hx-swap="outerHTML">
+          Activate
+        </button>
+        {{end}}
+        <button class="btn btn-danger btn-sm"
+          hx-delete="/admin/users/{{.ID}}"
+          hx-target="#user-{{.ID}}"
+          hx-swap="outerHTML"
+          hx-confirm="Delete user '{{.Username}}'?">
+          Delete
+        </button>
       {{end}}
     </div>
   </td>

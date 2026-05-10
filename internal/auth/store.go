@@ -151,8 +151,18 @@ func (s *Store) ListUsers(ctx context.Context, tenantID string, limit, offset in
 	return users, total, rows.Err()
 }
 
-// SetUserActive enables or disables a user account.
+// SetUserActive enables or disables a user account. Superadmin and domain
+// admin accounts cannot be deactivated.
 func (s *Store) SetUserActive(ctx context.Context, id string, active bool) error {
+	if !active {
+		u, err := s.GetUserByID(ctx, id)
+		if err != nil {
+			return fmt.Errorf("set active: %w", err)
+		}
+		if u != nil && (u.UserType == UserTypeSuperAdmin || u.UserType == UserTypeAdmin) {
+			return fmt.Errorf("%s accounts cannot be deactivated", u.UserType)
+		}
+	}
 	val := 0
 	if active {
 		val = 1

@@ -630,7 +630,7 @@ func (h *Handler) activateUser(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) deactivateUser(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "userID")
 	if err := h.auth.SetUserActive(r.Context(), id, false); err != nil {
-		http.Error(w, "deactivate failed", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 	user, err := h.auth.GetUserByID(r.Context(), id)

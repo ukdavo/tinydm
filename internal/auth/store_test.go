@@ -99,7 +99,39 @@ func TestDeleteUser_RejectsSuperadmin(t *testing.T) {
 	}
 }
 
-func TestDeleteUser_AllowsRegularAdmin(t *testing.T) {
+func TestDeleteUser_AllowsRegularUser(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedTenant(t, s, "tenant-1")
+
+	hash, _ := HashPassword("secret")
+	user, err := s.CreateUser(ctx, "tenant-1", "alice", "", hash, UserTypeUser)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	if err := s.DeleteUser(ctx, user.ID); err != nil {
+		t.Errorf("unexpected error deleting regular user: %v", err)
+	}
+}
+
+func TestSetUserActive_RejectsSuperadminDeactivation(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedTenant(t, s, "tenant-sys")
+
+	hash, _ := HashPassword("secret")
+	superadmin, err := s.CreateUser(ctx, "tenant-sys", "superadmin", "", hash, UserTypeSuperAdmin)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	if err := s.SetUserActive(ctx, superadmin.ID, false); err == nil {
+		t.Error("expected error deactivating superadmin, got nil")
+	}
+}
+
+func TestSetUserActive_RejectsDomainAdminDeactivation(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
 	seedTenant(t, s, "tenant-1")
@@ -110,7 +142,41 @@ func TestDeleteUser_AllowsRegularAdmin(t *testing.T) {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	if err := s.DeleteUser(ctx, admin.ID); err != nil {
-		t.Errorf("unexpected error deleting admin user: %v", err)
+	if err := s.SetUserActive(ctx, admin.ID, false); err == nil {
+		t.Error("expected error deactivating domain admin, got nil")
+	}
+}
+
+func TestSetUserActive_AllowsRegularUserDeactivation(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedTenant(t, s, "tenant-1")
+
+	hash, _ := HashPassword("secret")
+	user, err := s.CreateUser(ctx, "tenant-1", "alice", "", hash, UserTypeUser)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	if err := s.SetUserActive(ctx, user.ID, false); err != nil {
+		t.Errorf("unexpected error deactivating regular user: %v", err)
+	}
+}
+
+func TestSetUserActive_AllowsReactivation(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedTenant(t, s, "tenant-1")
+
+	hash, _ := HashPassword("secret")
+	user, err := s.CreateUser(ctx, "tenant-1", "alice", "", hash, UserTypeUser)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	if err := s.SetUserActive(ctx, user.ID, false); err != nil {
+		t.Fatalf("deactivate: %v", err)
+	}
+	if err := s.SetUserActive(ctx, user.ID, true); err != nil {
+		t.Errorf("unexpected error reactivating user: %v", err)
 	}
 }
