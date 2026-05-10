@@ -59,9 +59,9 @@ func main() {
 	}
 
 	// ── Database ──────────────────────────────────────────────────────────────
-	database, err := db.Open(cfg.DBPath)
+	database, err := db.Open(cfg.DBDriver, cfg.DSN())
 	if err != nil {
-		slog.Error("failed to open database", "error", err, "path", cfg.DBPath)
+		slog.Error("failed to open database", "error", err, "driver", cfg.DBDriver)
 		os.Exit(1)
 	}
 	defer database.Close()
@@ -70,7 +70,7 @@ func main() {
 		slog.Error("failed to run migrations", "error", err)
 		os.Exit(1)
 	}
-	slog.Info("database ready", "path", cfg.DBPath)
+	slog.Info("database ready", "driver", cfg.DBDriver, "dsn", cfg.DSN())
 
 	// ── Storage ───────────────────────────────────────────────────────────────
 	fileStore, err := storage.NewLocal(cfg.StoragePath)

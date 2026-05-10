@@ -2,7 +2,7 @@
 
 A simple, self-hosted document management system. Small footprint, easy to deploy, no external dependencies.
 
-> **Status:** Phases 1–7 complete. The full REST API, document versioning, tags, custom properties, automatic metadata extraction, an immutable audit log, a document & bucket management UI, and an HTMX admin web UI are all working. All list endpoints support pagination.
+> **Status:** Phases 1–8 (security, tests, cross-platform builds, PostgreSQL support) complete. The full REST API, document versioning, tags, custom properties, automatic metadata extraction, an immutable audit log, a document & bucket management UI, and an HTMX admin web UI are all working. SQLite is the default database; PostgreSQL is available as an alternative backend.
 
 ---
 
@@ -20,6 +20,7 @@ A simple, self-hosted document management system. Small footprint, easy to deplo
 - **Admin web UI** — HTMX-powered interface at `/admin/` covering tenants, projects, buckets, documents, users, API keys, and audit log; all assets embedded in the binary
 - **Document & bucket management UI** — inline bucket rename, document update, name search, tag filter, tag management, custom properties panel, system metadata display, version history and one-click restore
 - **Content-addressed storage** — SHA-256 keyed files; identical content is stored once
+- **OpenAPI 3.1 documentation** — Swagger UI at `/api/docs`, raw spec at `/api/docs/openapi.yaml`; both embedded in the binary
 - **Structured JSON logging**, health endpoint, graceful shutdown
 - Single binary · Docker · docker-compose
 
@@ -31,12 +32,12 @@ A simple, self-hosted document management system. Small footprint, easy to deplo
 |---|---|
 | Language | Go 1.21+ |
 | HTTP router | [Chi](https://github.com/go-chi/chi) |
-| Database | SQLite via [modernc/sqlite](https://gitlab.com/cznic/sqlite) — no CGO |
-| Migrations | [Goose](https://github.com/pressly/goose) (embedded SQL files) |
+| Database | SQLite (default, no CGO) via [modernc/sqlite](https://gitlab.com/cznic/sqlite) · PostgreSQL via [pgx/v5](https://github.com/jackc/pgx) |
+| Migrations | [Goose](https://github.com/pressly/goose) (embedded SQL files, per-driver sets) |
 | Auth | bcrypt · HS256 JWT · SHA-256 API keys |
 | Metadata | stdlib `image/*` packages (zero extra deps) |
 | Admin UI | HTMX 2 + Go `html/template` — embedded in binary |
-| Packaging | Single binary · Docker |
+| Packaging | Single binary · Docker · docker-compose (SQLite or PostgreSQL profile) |
 
 ---
 
@@ -78,8 +79,11 @@ docker run --rm \
 Or with Docker Compose:
 
 ```bash
-# Edit docker-compose.yml to set TINYDM_JWT_SECRET
+# SQLite (default)
 docker compose up
+
+# PostgreSQL (starts postgres + tinydm-pg services)
+docker compose --profile postgres up
 ```
 
 ---
@@ -111,15 +115,31 @@ All configuration is via environment variables.
 |---|---|---|
 | `TINYDM_HOST` | `0.0.0.0` | Listen address |
 | `TINYDM_PORT` | `8080` | Listen port |
-| `TINYDM_DB_PATH` | `tinydm.db` | SQLite database file path |
+| `TINYDM_DB_DRIVER` | `sqlite` | Database backend: `sqlite` or `postgres` |
+| `TINYDM_DB_PATH` | `tinydm.db` | SQLite database file path (used when `DB_DRIVER=sqlite`) |
+| `TINYDM_DB_DSN` | _(empty)_ | PostgreSQL connection string (required when `DB_DRIVER=postgres`) e.g. `host=localhost user=tinydm dbname=tinydm sslmode=disable` |
 | `TINYDM_STORAGE_PATH` | `data/content` | Directory for stored file content |
 | `TINYDM_JWT_SECRET` | _(required)_ | Secret used to sign JWTs — use a long random string in production |
 | `TINYDM_JWT_EXPIRY_MINUTES` | `60` | JWT lifetime in minutes |
+| `TINYDM_SECURE_COOKIES` | `false` | Set `true` when serving over HTTPS to mark session cookies Secure |
 | `TINYDM_BOOTSTRAP_TENANT_ID` | `default` | Tenant ID created on first run |
 | `TINYDM_BOOTSTRAP_TENANT_NAME` | `Default` | Tenant display name created on first run |
 | `TINYDM_BOOTSTRAP_ADMIN_USER` | `admin` | Admin username created on first run |
 | `TINYDM_BOOTSTRAP_ADMIN_EMAIL` | _(empty)_ | Admin email created on first run |
 | `TINYDM_BOOTSTRAP_ADMIN_PASS` | _(empty)_ | Admin password on first run — **bootstrap is skipped if unset** |
+
+### PostgreSQL
+
+Switch backends by setting two variables:
+
+```bash
+TINYDM_DB_DRIVER=postgres \
+TINYDM_DB_DSN="host=localhost user=tinydm password=tinydm dbname=tinydm sslmode=disable" \
+TINYDM_JWT_SECRET=your-secret-here \
+go run ./cmd/tinydm
+```
+
+Both drivers are compiled into every binary. No rebuild is required to switch. Migrations run automatically on startup from an embedded, driver-specific SQL set (`migrations/` for SQLite, `migrations_pg/` for PostgreSQL).
 
 ### Bootstrap
 
@@ -370,13 +390,14 @@ All scripts accept an optional `BASE_URL` argument (default `http://localhost:80
 tinydm/
 ├── cmd/tinydm/         Entry point (main.go)
 ├── internal/
-│   ├── api/            HTTP handlers, response helpers, route registration
+│   ├── api/            HTTP handlers, response helpers, route registration, security middleware
 │   ├── audit/          Audit log store + recording middleware
 │   ├── auth/           Authentication, JWT, API keys, RBAC middleware
 │   ├── config/         Environment-variable configuration
 │   ├── db/
-│   │   ├── migrations/ Goose SQL migration files
-│   │   └── queries/    sqlc SQL query files
+│   │   ├── migrations/    Goose SQL migration files (SQLite)
+│   │   ├── migrations_pg/ Goose SQL migration files (PostgreSQL)
+│   │   └── queries/       sqlc SQL query files
 │   ├── meta/           Automatic metadata extraction (image, PDF, Office)
 │   ├── repo/           Repository store — CRUD for all domain types
 │   ├── storage/        Content-addressed file storage abstraction
@@ -409,7 +430,7 @@ make sqlc
 
 ## Roadmap
 
-See [PLAN.md](./PLAN.md) for the full task-level breakdown.
+See [PLAN.md](./PLAN.md) for the full task-level breakdown. For production deployment instructions see [DEPLOYMENT.md](./DEPLOYMENT.md).
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -420,7 +441,7 @@ See [PLAN.md](./PLAN.md) for the full task-level breakdown.
 | 5 | Audit log | ✅ Done |
 | 6 | Admin web UI (HTMX) | ✅ Done |
 | 7 | Document & bucket management UI — search, tags, properties, versions; REST + web UI pagination | ✅ Done |
-| 8 | Hardening, tests, OpenAPI, release | ⬜ Next |
+| 8 | Hardening — unit & integration tests, security review, cross-platform CI/CD, PostgreSQL support | 🔄 In progress (8.1–8.5 done) |
 | — | Clustering — multi-node coordination, distributed locking, replicated storage | ⬜ Backlog |
 | — | Caching — response caching layer, cache invalidation strategy, TTL configuration | ⬜ Backlog |
 

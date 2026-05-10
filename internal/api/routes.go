@@ -121,4 +121,8 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok"}`))
 	})
+
+	// API docs — no auth; Swagger UI at /api/docs, raw spec at /api/docs/openapi.yaml
+	r.Get("/api/docs", serveSwaggerUI)
+	r.Get("/api/docs/openapi.yaml", serveOpenAPISpec)
 }

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"tinydm/internal/db"
 )
 
 // User is a row from the users table.
@@ -48,12 +50,12 @@ type Right struct {
 // Store handles all auth-related database operations using raw SQL so that
 // the auth package has no dependency on the sqlc-generated code.
 type Store struct {
-	db *sql.DB
+	db *db.DB
 }
 
 // NewStore creates a new auth Store backed by db.
-func NewStore(db *sql.DB) *Store {
-	return &Store{db: db}
+func NewStore(database *db.DB) *Store {
+	return &Store{db: database}
 }
 
 // ─── Users ────────────────────────────────────────────────────────────────────
@@ -163,7 +165,7 @@ func (s *Store) SetUserActive(ctx context.Context, id string, active bool) error
 // DeleteUser soft-deletes a user by ID.
 func (s *Store) DeleteUser(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE users SET deleted_at = datetime('now') WHERE id = ? AND deleted_at IS NULL`,
+		`UPDATE users SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`,
 		id,
 	)
 	return err
@@ -261,7 +263,7 @@ func (s *Store) ListAPIKeys(ctx context.Context, tenantID string, limit, offset 
 // RevokeAPIKey sets revoked_at to now for the given key ID.
 func (s *Store) RevokeAPIKey(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE api_keys SET revoked_at = datetime('now') WHERE id = ? AND revoked_at IS NULL`,
+		`UPDATE api_keys SET revoked_at = CURRENT_TIMESTAMP WHERE id = ? AND revoked_at IS NULL`,
 		id,
 	)
 	return err

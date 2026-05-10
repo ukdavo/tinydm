@@ -4,11 +4,12 @@ package audit
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
+
+	"tinydm/internal/db"
 )
 
 // DefaultLimit is the page size used when the caller does not specify one.
@@ -34,12 +35,12 @@ type Event struct {
 
 // Store handles reading and writing audit events.
 type Store struct {
-	db *sql.DB
+	db *db.DB
 }
 
 // NewStore creates a Store backed by db.
-func NewStore(db *sql.DB) *Store {
-	return &Store{db: db}
+func NewStore(database *db.DB) *Store {
+	return &Store{db: database}
 }
 
 // Record inserts a new audit event. It is designed to be called fire-and-forget:

@@ -46,7 +46,7 @@ func newTestServer(t *testing.T) *testServer {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "test.db")
 
-	sqlDB, err := db.Open(dbPath)
+	sqlDB, err := db.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("db.Open: %v", err)
 	}
@@ -57,6 +57,7 @@ func newTestServer(t *testing.T) *testServer {
 	}
 
 	cfg := &config.Config{
+		DBDriver:         "sqlite",
 		JWTSecret:        testJWTSecret,
 		JWTExpiryMinutes: 60,
 	}

@@ -1,13 +1,56 @@
 services:
+  # ─── SQLite (default) ─────────────────────────────────────────────────────
   tinydm:
     build: .
+    profiles: ["", "sqlite"]
     ports:
       - "8080:8080"
     volumes:
       - tinydm-data:/data
     environment:
       TINYDM_JWT_SECRET: "change-me-before-production"
+      # SQLite is the default; override with TINYDM_DB_DRIVER=postgres to use PostgreSQL.
+      TINYDM_DB_DRIVER: "sqlite"
+      TINYDM_DB_PATH: "/data/tinydm.db"
+      TINYDM_STORAGE_PATH: "/data/content"
+    restart: unless-stopped
+
+  # ─── PostgreSQL (optional) ────────────────────────────────────────────────
+  # Start with: docker compose --profile postgres up
+  tinydm-pg:
+    build: .
+    profiles: ["postgres"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - tinydm-storage:/data
+    environment:
+      TINYDM_JWT_SECRET: "change-me-before-production"
+      TINYDM_DB_DRIVER: "postgres"
+      TINYDM_DB_DSN: "host=postgres user=tinydm password=tinydm dbname=tinydm sslmode=disable"
+      TINYDM_STORAGE_PATH: "/data/content"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: tinydm
+      POSTGRES_PASSWORD: tinydm
+      POSTGRES_DB: tinydm
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tinydm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
 volumes:
   tinydm-data:
+  tinydm-storage:
+  postgres-data:

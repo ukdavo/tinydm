@@ -6,7 +6,12 @@ This document describes every table in the TinyDM schema, the relationships betw
 
 ## Overview
 
-TinyDM uses **SQLite** (via [modernc/sqlite](https://gitlab.com/cznic/sqlite) — no CGO required) as its only persistence layer. All schema changes are managed by **Goose** migration files under `internal/db/migrations/`. The database is a single file; the default path is `tinydm.db`, configurable via `TINYDM_DB_PATH`.
+TinyDM supports two database backends, selected at runtime via `TINYDM_DB_DRIVER`:
+
+- **SQLite** (default) — via [modernc/sqlite](https://gitlab.com/cznic/sqlite), no CGO required. The database is a single file; the default path is `tinydm.db`, configurable via `TINYDM_DB_PATH`.
+- **PostgreSQL** — via [pgx/v5](https://github.com/jackc/pgx). Set `TINYDM_DB_DRIVER=postgres` and provide `TINYDM_DB_DSN` with a libpq connection string.
+
+Both drivers are compiled into every binary. Schema changes are managed by **Goose** using driver-specific embedded migration files: `internal/db/migrations/` for SQLite and `internal/db/migrations_pg/` for PostgreSQL. Migrations run automatically on startup.
 
 File content is **not** stored in the database. Instead, a separate content-addressed filesystem store holds the raw bytes (see [Content storage](#content-storage) below). The database only stores metadata and a `storage_key` pointer to the file on disk.
 
@@ -447,10 +452,14 @@ The `storage.Store` interface (`internal/storage/storage.go`) abstracts the back
 
 Migrations are sequential SQL files managed by [Goose](https://github.com/pressly/goose) and embedded in the binary at build time:
 
-| File | Contents |
-|---|---|
-| `001_initial_schema.sql` | Core hierarchy: tenants, projects, buckets, documents, document_versions, document_tags, document_properties, audit_log |
-| `002_auth_schema.sql` | Authentication & authorisation: users, groups, group_members, api_keys, rights |
+Two migration sets are embedded in the binary — one per driver:
+
+| Directory | Driver | File | Contents |
+|---|---|---|---|
+| `migrations/` | SQLite | `001_initial_schema.sql` | Core hierarchy: tenants, projects, buckets, documents, document_versions, document_tags, document_properties, audit_log |
+| `migrations/` | SQLite | `002_auth_schema.sql` | Authentication & authorisation: users, groups, group_members, api_keys, rights |
+| `migrations_pg/` | PostgreSQL | `001_initial_schema.sql` | Same as above; uses `TIMESTAMPTZ` instead of `DATETIME`, `BIGINT` for sizes |
+| `migrations_pg/` | PostgreSQL | `002_auth_schema.sql` | Same as above; uses `TIMESTAMPTZ` |
 
 Goose runs all pending migrations automatically on startup. Each migration file contains an `-- +goose Up` block (applied forward) and a `-- +goose Down` block (rollback). This means the schema can be rolled back to any point without manual SQL.
 
@@ -474,7 +483,7 @@ Hard deletion (physically removing rows) is not exposed via the API and would re
 
 | Decision | Rationale |
 |---|---|
-| SQLite over Postgres | Zero external dependencies; single binary deployment; sufficient for the target workload. The `storage.Store` abstraction and clean repository layer mean the database can be swapped later with minimal impact. |
+| SQLite as default, PostgreSQL optional | SQLite gives zero-dependency single-binary deployment for the common case. PostgreSQL is available for deployments that need concurrent writers, replication, or managed-database integrations. Both share the same application code; a `db.DB` wrapper handles `?`→`$N` placeholder rebinding transparently. |
 | UUIDs as primary keys | Avoids sequential integer leakage, supports distributed ID generation without coordination, and is safe to expose in URLs. |
 | Denormalised `tenant_id` in `audit_log` | Preserves audit history even if a tenant is deleted; compliance requirement. |
 | No FK on `audit_log.tenant_id` | Intentional — a deleted tenant must not cascade-delete its audit records. |

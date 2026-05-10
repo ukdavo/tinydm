@@ -14,7 +14,13 @@ type Config struct {
 	Port int    // TINYDM_PORT (default: 8080)
 
 	// Database
+	// DBDriver selects the backend: "sqlite" (default) or "postgres".
+	DBDriver string // TINYDM_DB_DRIVER
+	// DBPath is the SQLite database file path (only used when DBDriver == "sqlite").
 	DBPath string // TINYDM_DB_PATH (default: tinydm.db)
+	// DBDSN is a PostgreSQL connection string (only used when DBDriver == "postgres").
+	// Example: "host=localhost user=tinydm dbname=tinydm sslmode=disable"
+	DBDSN string // TINYDM_DB_DSN
 
 	// File storage
 	StoragePath string // TINYDM_STORAGE_PATH (default: data/content)
@@ -38,7 +44,9 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		Host:               getEnv("TINYDM_HOST", "0.0.0.0"),
 		Port:               getEnvInt("TINYDM_PORT", 8080),
+		DBDriver:           getEnv("TINYDM_DB_DRIVER", "sqlite"),
 		DBPath:             getEnv("TINYDM_DB_PATH", "tinydm.db"),
+		DBDSN:              getEnv("TINYDM_DB_DSN", ""),
 		StoragePath:        getEnv("TINYDM_STORAGE_PATH", "data/content"),
 		JWTSecret:        getEnv("TINYDM_JWT_SECRET", ""),
 		JWTExpiryMinutes: getEnvInt("TINYDM_JWT_EXPIRY_MINUTES", 60),
@@ -54,6 +62,12 @@ func Load() (*Config, error) {
 	if cfg.JWTSecret == "" {
 		return nil, fmt.Errorf("TINYDM_JWT_SECRET must be set")
 	}
+	if cfg.DBDriver != "sqlite" && cfg.DBDriver != "postgres" {
+		return nil, fmt.Errorf("TINYDM_DB_DRIVER must be sqlite or postgres, got %q", cfg.DBDriver)
+	}
+	if cfg.DBDriver == "postgres" && cfg.DBDSN == "" {
+		return nil, fmt.Errorf("TINYDM_DB_DSN must be set when TINYDM_DB_DRIVER=postgres")
+	}
 
 	return cfg, nil
 }
@@ -61,6 +75,15 @@ func Load() (*Config, error) {
 // Addr returns the full host:port listen address.
 func (c *Config) Addr() string {
 	return fmt.Sprintf("%s:%d", c.Host, c.Port)
+}
+
+// DSN returns the connection string for the configured database driver.
+// For SQLite this is the file path; for PostgreSQL it is the libpq DSN.
+func (c *Config) DSN() string {
+	if c.DBDriver == "postgres" {
+		return c.DBDSN
+	}
+	return c.DBPath
 }
 
 func getEnv(key, fallback string) string {

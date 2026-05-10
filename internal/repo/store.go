@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+
+	"tinydm/internal/db"
 )
 
 // ─── Domain types ─────────────────────────────────────────────────────────────
@@ -75,12 +77,12 @@ type DocumentVersion struct {
 
 // Store handles all repository CRUD operations.
 type Store struct {
-	db *sql.DB
+	db *db.DB
 }
 
 // NewStore creates a new repository Store backed by db.
-func NewStore(db *sql.DB) *Store {
-	return &Store{db: db}
+func NewStore(database *db.DB) *Store {
+	return &Store{db: database}
 }
 
 // ─── Pagination ───────────────────────────────────────────────────────────────
@@ -668,7 +670,7 @@ func (s *Store) ListDocumentTags(ctx context.Context, docID string) ([]string, e
 // AddDocumentTag inserts a tag for the document (no-op if it already exists).
 func (s *Store) AddDocumentTag(ctx context.Context, docID, tag string) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT OR IGNORE INTO document_tags (document_id, tag) VALUES (?, ?)`, docID, tag)
+		`INSERT INTO document_tags (document_id, tag) VALUES (?, ?) ON CONFLICT DO NOTHING`, docID, tag)
 	return err
 }
 
@@ -695,7 +697,7 @@ func (s *Store) SetDocumentTags(ctx context.Context, docID string, tags []string
 			continue
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT OR IGNORE INTO document_tags (document_id, tag) VALUES (?, ?)`, docID, tag); err != nil {
+			`INSERT INTO document_tags (document_id, tag) VALUES (?, ?) ON CONFLICT DO NOTHING`, docID, tag); err != nil {
 			return err
 		}
 	}

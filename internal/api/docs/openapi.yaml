@@ -1,0 +1,1585 @@
+openapi: "3.1.0"
+
+info:
+  title: TinyDM API
+  version: "1.0"
+  description: |
+    **TinyDM** is a self-hosted document management system.
+
+    ### Resource hierarchy
+
+    ```
+    Tenant → Project → Bucket → Document
+    ```
+
+    Every document lives inside a bucket, which belongs to a project, which belongs to a tenant.
+    All API paths are scoped by tenant ID.
+
+    ### Authentication
+
+    Three methods are accepted on every protected endpoint — supply exactly one per request:
+
+    | Method | Header(s) | Notes |
+    |--------|-----------|-------|
+    | **Bearer JWT** | `Authorization: Bearer <token>` | Obtain via `POST /api/v1/auth/login` |
+    | **HTTP Basic** | `Authorization: Basic <b64>` + `X-Tenant-ID: <id>` | `base64(username:password)` |
+    | **API Key** | `X-API-Key: <key>` | Full key shown once on creation; prefix stored |
+
+    ### Pagination
+
+    All list endpoints return a JSON envelope:
+
+    ```json
+    {
+      "data": [ … ],
+      "pagination": { "total": 142, "limit": 50, "offset": 0, "has_more": true }
+    }
+    ```
+
+    Use `?limit=` (max 500) and `?offset=` to page through results.
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+# ── Security schemes ──────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT obtained from `POST /api/v1/auth/login`
+    BasicAuth:
+      type: http
+      scheme: basic
+      description: HTTP Basic authentication. Also supply `X-Tenant-ID` header.
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Opaque API key generated in the admin UI or API keys endpoint.
+
+  # ── Reusable parameters ───────────────────────────────────────────────────
+  parameters:
+    tenantID:
+      name: tenantID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Tenant UUID
+    projectID:
+      name: projectID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Project UUID
+    bucketID:
+      name: bucketID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Bucket UUID
+    documentID:
+      name: documentID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Document UUID
+    versionID:
+      name: versionID
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Version snapshot UUID
+    tag:
+      name: tag
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Tag label
+    key:
+      name: key
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Property key
+    limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        default: 50
+        minimum: 1
+        maximum: 500
+      description: Maximum number of items to return
+    offset:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        default: 0
+        minimum: 0
+      description: Number of items to skip
+
+  # ── Reusable schemas ──────────────────────────────────────────────────────
+  schemas:
+
+    # ── Pagination ────────────────────────────────────────────────────────
+    Pagination:
+      type: object
+      required: [total, limit, offset, has_more]
+      properties:
+        total:
+          type: integer
+          description: Total number of matching items (before limit/offset)
+          example: 142
+        limit:
+          type: integer
+          description: Effective page size
+          example: 50
+        offset:
+          type: integer
+          description: Number of items skipped
+          example: 0
+        has_more:
+          type: boolean
+          description: True when more items follow this page
+          example: true
+
+    # ── Error ─────────────────────────────────────────────────────────────
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
+          example: "not found"
+
+    # ── Auth ──────────────────────────────────────────────────────────────
+    LoginRequest:
+      type: object
+      required: [tenant_id, username, password]
+      properties:
+        tenant_id:
+          type: string
+          description: Tenant ID (not the display name)
+          example: default
+        username:
+          type: string
+          example: admin
+        password:
+          type: string
+          format: password
+          example: changeme
+
+    LoginResponse:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: Signed JWT — include as `Authorization: Bearer <token>`
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…
+
+    Principal:
+      type: object
+      required: [user_id, tenant_id, username, user_type]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+        username:
+          type: string
+        user_type:
+          type: string
+          enum: [admin, user]
+
+    # ── Tenant ────────────────────────────────────────────────────────────
+    Tenant:
+      type: object
+      required: [id, name, description, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          example: default
+        name:
+          type: string
+          example: Default
+        description:
+          type: string
+          example: ""
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    TenantInput:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          description: Unique slug — used in URLs and auth claims
+          example: acme
+        name:
+          type: string
+          example: Acme Corp
+        description:
+          type: string
+          example: ""
+
+    TenantList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tenant"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    # ── Project ───────────────────────────────────────────────────────────
+    Project:
+      type: object
+      required: [id, tenant_id, name, description, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+        name:
+          type: string
+          example: Website Assets
+        description:
+          type: string
+          example: ""
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ProjectInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          example: Website Assets
+        description:
+          type: string
+          example: ""
+
+    ProjectList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Project"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    # ── Bucket ────────────────────────────────────────────────────────────
+    Bucket:
+      type: object
+      required: [id, project_id, name, description, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: Images
+        description:
+          type: string
+          example: ""
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    BucketInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          example: Images
+        description:
+          type: string
+          example: ""
+
+    BucketList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Bucket"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    # ── Document ──────────────────────────────────────────────────────────
+    Document:
+      type: object
+      required: [id, bucket_id, name, content_type, size, checksum, storage_key, version, created_by, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        bucket_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: report.pdf
+        content_type:
+          type: string
+          example: application/pdf
+        size:
+          type: integer
+          description: File size in bytes
+          example: 204800
+        checksum:
+          type: string
+          description: SHA-256 hex digest of the file content
+          example: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+        storage_key:
+          type: string
+          description: Content-addressed key within the storage backend
+          example: e3/b0c44298fc1c149afbf4c8996fb924…
+        version:
+          type: integer
+          description: Monotonically increasing version counter; starts at 1
+          example: 3
+        created_by:
+          type: string
+          example: admin
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    DocumentList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Document"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    # ── Version ───────────────────────────────────────────────────────────
+    DocumentVersion:
+      type: object
+      required: [id, document_id, version, content_type, size, checksum, storage_key, created_by, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        document_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          description: Version number that was snapshotted
+          example: 2
+        content_type:
+          type: string
+          example: application/pdf
+        size:
+          type: integer
+          example: 195000
+        checksum:
+          type: string
+          example: a3b2c1…
+        storage_key:
+          type: string
+          example: a3/b2c1…
+        created_by:
+          type: string
+          example: admin
+        created_at:
+          type: string
+          format: date-time
+
+    VersionList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocumentVersion"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    # ── Tags ──────────────────────────────────────────────────────────────
+    TagList:
+      type: object
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          items:
+            type: string
+          example: [approved, confidential]
+
+    TagsInput:
+      type: object
+      required: [tags]
+      properties:
+        tags:
+          type: array
+          items:
+            type: string
+          example: [approved, confidential]
+
+    # ── Properties ────────────────────────────────────────────────────────
+    Properties:
+      type: object
+      additionalProperties:
+        type: string
+      description: |
+        Key/value property map. Keys prefixed with `sys.` are reserved for
+        system-extracted metadata (e.g. `sys.image.width`, `sys.pdf.version`).
+      example:
+        department: legal
+        project-ref: "PRJ-001"
+        sys.image.width: "1920"
+        sys.image.height: "1080"
+
+    PropertyValueInput:
+      type: object
+      required: [value]
+      properties:
+        value:
+          type: string
+          example: legal
+
+    # ── Users ─────────────────────────────────────────────────────────────
+    User:
+      type: object
+      required: [id, tenant_id, username, email, user_type, is_active]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+        username:
+          type: string
+          example: alice
+        email:
+          type: string
+          format: email
+          example: alice@example.com
+        user_type:
+          type: string
+          enum: [admin, user]
+        is_active:
+          type: boolean
+          example: true
+
+    UserList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    # ── API Keys ──────────────────────────────────────────────────────────
+    APIKey:
+      type: object
+      required: [id, tenant_id, name, key_prefix, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Owning user, or null for a tenant-scoped admin key
+        name:
+          type: string
+          example: CI Deploy Key
+        key_prefix:
+          type: string
+          description: First 12 characters of the plaintext key (for identification only)
+          example: tdm_a1b2c3d4e5
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    APIKeyList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/APIKey"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    # ── Audit ─────────────────────────────────────────────────────────────
+    AuditEvent:
+      type: object
+      required: [id, tenant_id, principal, action, resource, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+        principal:
+          type: string
+          description: Username or API key prefix of the actor
+          example: admin
+        action:
+          type: string
+          description: Dot-notation action string
+          example: document.create
+        resource:
+          type: string
+          description: UUID of the affected resource
+          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        detail:
+          type: string
+          description: Optional JSON payload with additional context
+          example: ""
+        created_at:
+          type: string
+          format: date-time
+
+    AuditList:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEvent"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+# ── Global security ───────────────────────────────────────────────────────────
+# Every protected endpoint accepts any one of these three methods.
+security:
+  - BearerAuth: []
+  - BasicAuth: []
+  - ApiKeyAuth: []
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+paths:
+
+  # ── Health ──────────────────────────────────────────────────────────────────
+  /health:
+    get:
+      operationId: getHealth
+      tags: [System]
+      summary: Health check
+      description: Returns server liveness and the running version. No authentication required.
+      security: []
+      responses:
+        "200":
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  version:
+                    type: string
+                    example: v1.2.0
+                  commit:
+                    type: string
+                    example: abc1234
+        "503":
+          description: Server is degraded (database ping failed)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: degraded
+
+  # ── Auth ────────────────────────────────────────────────────────────────────
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      tags: [Auth]
+      summary: Obtain a JWT
+      description: Exchange tenant ID, username, and password for a signed JWT. No authentication required.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/auth/me:
+    get:
+      operationId: getMe
+      tags: [Auth]
+      summary: Current principal
+      description: Returns the identity resolved from the authentication token in this request.
+      responses:
+        "200":
+          description: Current principal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Principal"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ── Tenants ─────────────────────────────────────────────────────────────────
+  /api/v1/tenants:
+    get:
+      operationId: listTenants
+      tags: [Tenants]
+      summary: List tenants
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated tenant list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantList"
+    post:
+      operationId: createTenant
+      tags: [Tenants]
+      summary: Create a tenant
+      description: Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantInput"
+      responses:
+        "201":
+          description: Tenant created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Admin required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/tenants/{tenantID}:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+    get:
+      operationId: getTenant
+      tags: [Tenants]
+      summary: Get a tenant
+      responses:
+        "200":
+          description: Tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      operationId: updateTenant
+      tags: [Tenants]
+      summary: Update a tenant
+      description: Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantInput"
+      responses:
+        "200":
+          description: Updated tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "403":
+          description: Admin required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deleteTenant
+      tags: [Tenants]
+      summary: Delete a tenant
+      description: Admin only. Soft-deletes the tenant and all its resources.
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Admin required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ── Projects ────────────────────────────────────────────────────────────────
+  /api/v1/tenants/{tenantID}/projects:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+    get:
+      operationId: listProjects
+      tags: [Projects]
+      summary: List projects
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated project list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectList"
+    post:
+      operationId: createProject
+      tags: [Projects]
+      summary: Create a project
+      description: Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectInput"
+      responses:
+        "201":
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Admin required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/tenants/{tenantID}/projects/{projectID}:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/projectID"
+    get:
+      operationId: getProject
+      tags: [Projects]
+      summary: Get a project
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      operationId: updateProject
+      tags: [Projects]
+      summary: Update a project
+      description: Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectInput"
+      responses:
+        "200":
+          description: Updated project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "403":
+          description: Admin required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deleteProject
+      tags: [Projects]
+      summary: Delete a project
+      description: Admin only. Soft-deletes the project and all its buckets and documents.
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Admin required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ── Buckets ─────────────────────────────────────────────────────────────────
+  /api/v1/tenants/{tenantID}/projects/{projectID}/buckets:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/projectID"
+    get:
+      operationId: listBuckets
+      tags: [Buckets]
+      summary: List buckets
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated bucket list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BucketList"
+    post:
+      operationId: createBucket
+      tags: [Buckets]
+      summary: Create a bucket
+      description: Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BucketInput"
+      responses:
+        "201":
+          description: Bucket created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bucket"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Admin required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/projectID"
+      - $ref: "#/components/parameters/bucketID"
+    get:
+      operationId: getBucket
+      tags: [Buckets]
+      summary: Get a bucket
+      responses:
+        "200":
+          description: Bucket
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bucket"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      operationId: updateBucket
+      tags: [Buckets]
+      summary: Update a bucket
+      description: Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BucketInput"
+      responses:
+        "200":
+          description: Updated bucket
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bucket"
+        "403":
+          description: Admin required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deleteBucket
+      tags: [Buckets]
+      summary: Delete a bucket
+      description: Admin only. Soft-deletes the bucket and all its documents.
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Admin required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ── Documents ───────────────────────────────────────────────────────────────
+  /api/v1/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/documents:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/projectID"
+      - $ref: "#/components/parameters/bucketID"
+    get:
+      operationId: listDocuments
+      tags: [Documents]
+      summary: List documents
+      description: |
+        Returns documents in a bucket. Supports name search (`?q=`) and tag
+        filter (`?tag=`); both parameters can be combined.
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: Case-insensitive substring match on document name
+        - name: tag
+          in: query
+          schema:
+            type: string
+          description: Filter to documents carrying this tag
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated document list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentList"
+    post:
+      operationId: uploadDocument
+      tags: [Documents]
+      summary: Upload a document
+      description: |
+        Upload a file as `multipart/form-data`. The `file` field is required;
+        `name` is optional (defaults to the original filename). Content-Type is
+        detected from the file bytes regardless of what the client sends.
+
+        Maximum file size: **512 MB**.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: File content
+                name:
+                  type: string
+                  description: Override filename (optional)
+      responses:
+        "201":
+          description: Document uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+        "400":
+          description: Invalid input or file too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/documents/{documentID}:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/projectID"
+      - $ref: "#/components/parameters/bucketID"
+      - $ref: "#/components/parameters/documentID"
+    get:
+      operationId: getDocument
+      tags: [Documents]
+      summary: Get document metadata
+      responses:
+        "200":
+          description: Document metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      operationId: updateDocument
+      tags: [Documents]
+      summary: Update a document
+      description: |
+        Rename the document and/or replace its content. Supply either or both:
+
+        - `name` only → rename without creating a version snapshot.
+        - `file` → replaces content; current state is snapshotted first and `version` increments.
+        - Both → rename + replace content (one snapshot).
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: New document name
+                file:
+                  type: string
+                  format: binary
+                  description: New file content (optional)
+      responses:
+        "200":
+          description: Updated document metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deleteDocument
+      tags: [Documents]
+      summary: Delete a document
+      description: Soft-deletes the document. Version snapshots are retained.
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/documents/{documentID}/content:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/projectID"
+      - $ref: "#/components/parameters/bucketID"
+      - $ref: "#/components/parameters/documentID"
+    get:
+      operationId: downloadDocument
+      tags: [Documents]
+      summary: Download document content
+      description: Streams the raw file bytes with appropriate `Content-Type` and `Content-Disposition` headers.
+      responses:
+        "200":
+          description: Raw file content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ── Versions ────────────────────────────────────────────────────────────────
+  /api/v1/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/documents/{documentID}/versions:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/projectID"
+      - $ref: "#/components/parameters/bucketID"
+      - $ref: "#/components/parameters/documentID"
+    get:
+      operationId: listVersions
+      tags: [Versions]
+      summary: List version snapshots
+      description: Returns all version snapshots for a document, newest first.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated version list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionList"
+        "404":
+          description: Document not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/documents/{documentID}/versions/{versionID}/restore:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/projectID"
+      - $ref: "#/components/parameters/bucketID"
+      - $ref: "#/components/parameters/documentID"
+      - $ref: "#/components/parameters/versionID"
+    post:
+      operationId: restoreVersion
+      tags: [Versions]
+      summary: Restore a version
+      description: |
+        Restores a previous version snapshot as the current document content.
+        The current state is snapshotted first so no history is lost.
+        The document's `version` counter increments.
+      responses:
+        "200":
+          description: Document after restore
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+        "404":
+          description: Document or version not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ── Tags ────────────────────────────────────────────────────────────────────
+  /api/v1/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/documents/{documentID}/tags:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/projectID"
+      - $ref: "#/components/parameters/bucketID"
+      - $ref: "#/components/parameters/documentID"
+    get:
+      operationId: listTags
+      tags: [Tags]
+      summary: List tags
+      description: Returns all tags for a document, sorted alphabetically.
+      responses:
+        "200":
+          description: Tag list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagList"
+    put:
+      operationId: replaceTags
+      tags: [Tags]
+      summary: Replace all tags
+      description: Atomically replaces all tags on the document with the supplied list.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TagsInput"
+      responses:
+        "200":
+          description: Updated tag list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagList"
+
+  /api/v1/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/documents/{documentID}/tags/{tag}:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/projectID"
+      - $ref: "#/components/parameters/bucketID"
+      - $ref: "#/components/parameters/documentID"
+      - $ref: "#/components/parameters/tag"
+    post:
+      operationId: addTag
+      tags: [Tags]
+      summary: Add a tag
+      description: Adds a single tag. Idempotent — adding an existing tag is a no-op.
+      responses:
+        "201":
+          description: Tag added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TagList"
+    delete:
+      operationId: removeTag
+      tags: [Tags]
+      summary: Remove a tag
+      responses:
+        "204":
+          description: Tag removed
+
+  # ── Properties ──────────────────────────────────────────────────────────────
+  /api/v1/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/documents/{documentID}/properties:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/projectID"
+      - $ref: "#/components/parameters/bucketID"
+      - $ref: "#/components/parameters/documentID"
+    get:
+      operationId: listProperties
+      tags: [Properties]
+      summary: Get all properties
+      description: Returns all properties (user-defined and system-extracted) as a flat key/value object.
+      responses:
+        "200":
+          description: All properties
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Properties"
+    put:
+      operationId: replaceProperties
+      tags: [Properties]
+      summary: Replace user-defined properties
+      description: |
+        Atomically replaces all user-defined properties. Keys prefixed with
+        `sys.` are system-reserved and are not touched by this operation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Properties"
+      responses:
+        "200":
+          description: Updated properties
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Properties"
+
+  /api/v1/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/documents/{documentID}/properties/{key}:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+      - $ref: "#/components/parameters/projectID"
+      - $ref: "#/components/parameters/bucketID"
+      - $ref: "#/components/parameters/documentID"
+      - $ref: "#/components/parameters/key"
+    put:
+      operationId: setProperty
+      tags: [Properties]
+      summary: Set a property
+      description: Upserts a single key/value property. System keys (`sys.*`) are rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PropertyValueInput"
+      responses:
+        "200":
+          description: Property set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Properties"
+        "400":
+          description: Reserved key prefix
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deleteProperty
+      tags: [Properties]
+      summary: Delete a property
+      responses:
+        "204":
+          description: Property deleted
+
+  # ── Users ────────────────────────────────────────────────────────────────────
+  /api/v1/tenants/{tenantID}/users:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+    get:
+      operationId: listUsers
+      tags: [Users & API Keys]
+      summary: List users
+      description: Admin only. Password hashes are never included in responses.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated user list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserList"
+        "403":
+          description: Admin required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ── API Keys ─────────────────────────────────────────────────────────────────
+  /api/v1/tenants/{tenantID}/apikeys:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+    get:
+      operationId: listAPIKeys
+      tags: [Users & API Keys]
+      summary: List API keys
+      description: |
+        Admin only. The plaintext key value is shown **once** at creation time only.
+        This endpoint returns the `key_prefix` (first 12 characters) for identification purposes.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated API key list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/APIKeyList"
+        "403":
+          description: Admin required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  # ── Audit log ────────────────────────────────────────────────────────────────
+  /api/v1/tenants/{tenantID}/audit:
+    parameters:
+      - $ref: "#/components/parameters/tenantID"
+    get:
+      operationId: listAuditEvents
+      tags: [Audit]
+      summary: Query audit log
+      description: |
+        Admin only. Returns audit events for the tenant, newest first.
+
+        The `action` filter supports a trailing `*` wildcard — for example
+        `action=document.*` matches all document actions.
+      parameters:
+        - name: action
+          in: query
+          schema:
+            type: string
+          description: Exact action string, or prefix with trailing `*` (e.g. `document.*`)
+        - name: principal
+          in: query
+          schema:
+            type: string
+          description: Exact match on username or API-key prefix
+        - name: resource
+          in: query
+          schema:
+            type: string
+          description: Exact match on resource UUID
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Lower bound on `created_at`
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Upper bound on `created_at`
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: Paginated audit event list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditList"
+        "403":
+          description: Admin required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+# ── Tag grouping for Swagger UI ───────────────────────────────────────────────
+tags:
+  - name: System
+    description: Health check and server status
+  - name: Auth
+    description: Login and identity endpoints
+  - name: Tenants
+    description: Tenant management (admin only for writes)
+  - name: Projects
+    description: Project management within a tenant
+  - name: Buckets
+    description: Bucket management within a project
+  - name: Documents
+    description: Document upload, download, and metadata
+  - name: Versions
+    description: Version history and restore
+  - name: Tags
+    description: Free-form document labels
+  - name: Properties
+    description: Custom key/value document metadata
+  - name: Users & API Keys
+    description: User and API key management (admin only)
+  - name: Audit
+    description: Immutable event log (admin only)
