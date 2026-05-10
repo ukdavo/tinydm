@@ -12,7 +12,6 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
-	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/container"
 )
 
 // AzureStore is a content-addressed object store backed by Azure Blob Storage.
@@ -166,8 +165,13 @@ func (s *AzureStore) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-// containerClient returns the container client for the store's container.
-// Used by Get which needs to check for ContainerNotFound separately.
-func (s *AzureStore) containerClient() *container.Client {
-	return s.client.ServiceClient().NewContainerClient(s.containerName)
+// Ping checks that the Azure Blob container is reachable by fetching its
+// properties.
+func (s *AzureStore) Ping(ctx context.Context) error {
+	_, err := s.client.ServiceClient().NewContainerClient(s.containerName).GetProperties(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("azure ping: %w", err)
+	}
+	return nil
 }
+

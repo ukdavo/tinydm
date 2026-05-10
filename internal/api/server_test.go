@@ -21,6 +21,7 @@ import (
 	"tinydm/internal/api"
 	"tinydm/internal/audit"
 	"tinydm/internal/auth"
+	"tinydm/internal/cluster"
 	"tinydm/internal/config"
 	"tinydm/internal/db"
 	"tinydm/internal/repo"
@@ -73,7 +74,7 @@ func newTestServer(t *testing.T) *testServer {
 
 	r := chi.NewRouter()
 	r.Use(auth.Authenticator(cfg.JWTSecret, authStore))
-	api.RegisterRoutes(r, cfg, repoStore, authStore, fileStore, auditStore)
+	api.RegisterRoutes(r, cfg, repoStore, authStore, fileStore, auditStore, cluster.NewNoOpLocker())
 
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)

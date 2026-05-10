@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"tinydm/internal/cluster"
 	"tinydm/internal/repo"
 )
 
@@ -13,12 +14,13 @@ import (
 // Keys prefixed with "sys." are reserved for system metadata and cannot be
 // modified through this handler.
 type PropertyHandler struct {
-	store *repo.Store
+	store  *repo.Store
+	locker cluster.Locker
 }
 
 // NewPropertyHandler creates a new PropertyHandler.
-func NewPropertyHandler(store *repo.Store) *PropertyHandler {
-	return &PropertyHandler{store: store}
+func NewPropertyHandler(store *repo.Store, locker cluster.Locker) *PropertyHandler {
+	return &PropertyHandler{store: store, locker: locker}
 }
 
 // List handles GET .../documents/{documentID}/properties
@@ -38,6 +40,14 @@ func (h *PropertyHandler) List(w http.ResponseWriter, r *http.Request) {
 // Keys prefixed with "sys." are ignored.
 func (h *PropertyHandler) Replace(w http.ResponseWriter, r *http.Request) {
 	doc := documentFromCtx(r)
+
+	unlock, err := h.locker.Lock(r.Context(), "doc:"+doc.ID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "could not acquire lock")
+		return
+	}
+	defer unlock()
+
 	var body map[string]string
 	if err := decode(r, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")

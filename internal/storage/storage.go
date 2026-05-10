@@ -22,6 +22,9 @@ type Store interface {
 	// Delete removes the content at key. Implementations should be
 	// idempotent — deleting a non-existent key is not an error.
 	Delete(ctx context.Context, key string) error
+	// Ping checks that the backend is reachable and the storage location is
+	// accessible. Used by the /health endpoint.
+	Ping(ctx context.Context) error
 }
 
 // Local is a content-addressed local-filesystem store.
@@ -103,6 +106,14 @@ func (l *Local) Delete(_ context.Context, key string) error {
 	path := filepath.Join(l.basePath, filepath.FromSlash(key))
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("delete content: %w", err)
+	}
+	return nil
+}
+
+// Ping checks that the local storage directory is accessible.
+func (l *Local) Ping(_ context.Context) error {
+	if _, err := os.Stat(l.basePath); err != nil {
+		return fmt.Errorf("local storage unavailable: %w", err)
 	}
 	return nil
 }

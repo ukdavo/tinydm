@@ -173,3 +173,11 @@ func (s *GCSStore) Delete(ctx context.Context, key string) error {
 	}
 	return nil
 }
+
+// Ping checks that the GCS bucket is reachable by fetching its attributes.
+func (s *GCSStore) Ping(ctx context.Context) error {
+	if _, err := s.client.Bucket(s.bucket).Attrs(ctx); err != nil {
+		return fmt.Errorf("gcs ping: %w", err)
+	}
+	return nil
+}

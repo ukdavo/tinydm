@@ -582,3 +582,98 @@ readinessProbe:
   initialDelaySeconds: 5
   periodSeconds: 10
 ```
+
+---
+
+## Clustering (Multi-Node Active-Active)
+
+TinyDM supports running multiple nodes simultaneously against a shared PostgreSQL database and a shared object store (S3, Azure Blob, or GCS). Nodes coordinate via PostgreSQL advisory locks and a heartbeat table.
+
+### Prerequisites
+
+| Requirement | Notes |
+|-------------|-------|
+| PostgreSQL ≥ 14 | SQLite is single-node only; switch to `TINYDM_DB_DRIVER=postgres` |
+| Shared object store | S3 / MinIO, Azure Blob, or GCS — all nodes must point at the same bucket/container |
+| Reverse proxy | nginx (or any L7 proxy) routes requests across nodes |
+
+### Node identity
+
+Set a unique, stable identifier for each node:
+
+```
+TINYDM_NODE_ID=tinydm-1
+```
+
+Defaults to the system hostname if not set. Node IDs are recorded in the `cluster_nodes` table with a heartbeat timestamp updated every 5 seconds.
+
+### Environment variables (cluster-specific)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TINYDM_NODE_ID` | hostname | Stable node identifier shown in `/health` responses and `cluster_nodes` |
+| `TINYDM_DB_DRIVER` | `sqlite` | Set to `postgres` for multi-node |
+| `TINYDM_DB_DSN` | — | PostgreSQL connection string (required when driver is `postgres`) |
+
+All storage backends are supported. See [Storage Backends](#storage-backends) for the relevant environment variables.
+
+### Quick start with docker-compose
+
+The repo includes `docker-compose.cluster.yml` which starts 3 TinyDM nodes, PostgreSQL, MinIO, and nginx:
+
+```bash
+# First-time only: bootstrap the admin account on node 1.
+BOOTSTRAP_PASS=yourpassword docker compose -f docker-compose.cluster.yml up --build
+
+# Subsequent starts (bootstrap vars are ignored once users exist).
+docker compose -f docker-compose.cluster.yml up
+```
+
+The cluster is reachable at `http://localhost:80`. The MinIO console is at `http://localhost:9001`.
+
+**⚠ Change `TINYDM_JWT_SECRET` before deploying to production.** The default value in the compose file is a placeholder.
+
+### nginx upstream configuration
+
+`nginx.cluster.conf` (also in the repo) configures `least_conn` load balancing with automatic failover:
+
+```nginx
+upstream tinydm {
+    least_conn;
+    server tinydm-1:8080 fail_timeout=10s max_fails=3;
+    server tinydm-2:8080 fail_timeout=10s max_fails=3;
+    server tinydm-3:8080 fail_timeout=10s max_fails=3;
+    keepalive 32;
+}
+```
+
+TinyDM tokens are stateless JWTs, so no sticky sessions are required.
+
+### Leader election
+
+One node at a time holds the PostgreSQL advisory lock `leaderLockID`. The current leader is identified in the `/health` response. The leader role migrates automatically when a node stops — the advisory lock is released when the database connection closes, and another node picks it up within one heartbeat interval (≤ 5 s).
+
+### Enhanced `/health` response (cluster mode)
+
+```json
+{
+  "status": "ok",
+  "version": "v1.2.0",
+  "commit": "abc1234",
+  "node_id": "tinydm-2",
+  "db": "ok",
+  "storage": "ok"
+}
+```
+
+HTTP 503 is returned if either `db` or `storage` reports `"error"`, allowing the load balancer to route around degraded nodes.
+
+### Rolling upgrade procedure
+
+1. Pull the new image / build the new binary.
+2. Take one node out of the nginx upstream (or let `max_fails` handle it naturally).
+3. Stop the node, deploy the new version, start it — migrations run automatically on startup.
+4. Verify `/health` returns `"status": "ok"` on the upgraded node.
+5. Repeat for each remaining node.
+
+Zero-downtime is achieved because the database schema is always backward-compatible (additive migrations only) and the shared object store requires no migration.

@@ -16,6 +16,7 @@ import (
 	"tinydm/internal/api"
 	"tinydm/internal/audit"
 	"tinydm/internal/auth"
+	"tinydm/internal/cluster"
 	"tinydm/internal/config"
 	"tinydm/internal/db"
 	"tinydm/internal/repo"
@@ -57,6 +58,7 @@ func main() {
 		slog.Error("configuration error", "error", err)
 		os.Exit(1)
 	}
+	slog.Info("node identity", "node_id", cfg.NodeID)
 
 	// ── Database ──────────────────────────────────────────────────────────────
 	database, err := db.Open(cfg.DBDriver, cfg.DSN())
@@ -95,6 +97,30 @@ func main() {
 	}
 	slog.Info("storage ready", "backend", cfg.StorageBackend)
 
+	// ── Cluster coordination ──────────────────────────────────────────────────
+	// For PostgreSQL multi-node deployments: use advisory-lock-based locker and
+	// leader elector. For SQLite (single-node): use no-op implementations that
+	// return immediately without touching the database.
+	var locker cluster.Locker
+	var leader cluster.LeaderElector
+
+	if cfg.DBDriver == "postgres" {
+		locker = cluster.NewPGLocker(database.DB)
+		leader = cluster.NewPGLeaderElector(cfg.NodeID, database.DB)
+	} else {
+		locker = cluster.NewNoOpLocker()
+		leader = cluster.NewNoOpLeaderElector(cfg.NodeID)
+	}
+
+	startCtx, startCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := leader.Start(startCtx); err != nil {
+		slog.Error("failed to start leader elector", "error", err)
+		startCancel()
+		os.Exit(1)
+	}
+	startCancel()
+	slog.Info("cluster coordination ready", "node_id", leader.NodeID(), "is_leader", leader.IsLeader())
+
 	// ── Stores ────────────────────────────────────────────────────────────────
 	authStore := auth.NewStore(database)
 	repoStore := repo.NewStore(database)
@@ -129,11 +155,11 @@ func main() {
 	r.Use(api.SecurityHeaders)
 	r.Use(auth.Authenticator(cfg.JWTSecret, authStore))
 
-	// Health endpoint
-	r.Get("/health", handleHealth(database))
+	// Health endpoint — probes DB and storage, includes node identity.
+	r.Get("/health", handleHealth(database, fileStore, leader))
 
 	// Register all API routes
-	api.RegisterRoutes(r, cfg, repoStore, authStore, fileStore, auditStore)
+	api.RegisterRoutes(r, cfg, repoStore, authStore, fileStore, auditStore, locker)
 
 	// Register admin web UI routes
 	webHandler := web.New(cfg, repoStore, authStore, auditStore, fileStore)
@@ -161,32 +187,54 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	slog.Info("shutdown signal received")
+	slog.Info("shutdown signal received", "node_id", leader.NodeID())
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
 		slog.Error("server shutdown error", "error", err)
 	}
+
+	leader.Stop()
 	slog.Info("server stopped")
 }
 
-// handleHealth returns a liveness/readiness handler that pings the database.
-func handleHealth(database interface{ PingContext(context.Context) error }) http.HandlerFunc {
+// handleHealth returns a liveness/readiness handler that probes the database
+// and storage backend and includes the node identity in the response.
+func handleHealth(database interface{ PingContext(context.Context) error }, store storage.Store, leader cluster.LeaderElector) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 
-		status := "ok"
-		code := http.StatusOK
+		overallOK := true
+
+		dbStatus := "ok"
 		if err := database.PingContext(ctx); err != nil {
 			slog.Error("health check: db ping failed", "error", err)
+			dbStatus = "error"
+			overallOK = false
+		}
+
+		storageStatus := "ok"
+		if err := store.Ping(ctx); err != nil {
+			slog.Error("health check: storage ping failed", "error", err)
+			storageStatus = "error"
+			overallOK = false
+		}
+
+		status := "ok"
+		code := http.StatusOK
+		if !overallOK {
 			status = "degraded"
 			code = http.StatusServiceUnavailable
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(code)
-		fmt.Fprintf(w, `{"status":%q,"version":%q,"commit":%q}`, status, version, commit)
+		fmt.Fprintf(w,
+			`{"status":%q,"version":%q,"commit":%q,"node_id":%q,"db":%q,"storage":%q}`,
+			status, version, commit, leader.NodeID(), dbStatus, storageStatus,
+		)
 	}
 }

@@ -1,0 +1,150 @@
+version: "3.9"
+
+# ── Cluster compose ────────────────────────────────────────────────────────────
+# Runs TinyDM in active-active mode: 3 application nodes share one PostgreSQL
+# database and one MinIO object store, fronted by nginx.
+#
+# Usage:
+#   docker compose -f docker-compose.cluster.yml up --build
+#
+# Endpoints:
+#   http://localhost:80         nginx load-balanced API + UI
+#   http://localhost:9001       MinIO console
+#   http://localhost:5432       PostgreSQL (not exposed externally by default)
+#
+# Bootstrap the first admin on node-1 only (once, then restart without vars):
+#   BOOTSTRAP_PASS=secret docker compose -f docker-compose.cluster.yml up
+
+x-tinydm-common: &tinydm-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  depends_on:
+    postgres:
+      condition: service_healthy
+    minio:
+      condition: service_healthy
+  environment:
+    TINYDM_DB_DRIVER: postgres
+    TINYDM_DB_DSN: "host=postgres port=5432 user=tinydm password=tinydm dbname=tinydm sslmode=disable"
+    TINYDM_STORAGE_BACKEND: s3
+    TINYDM_S3_BUCKET: tinydm-docs
+    TINYDM_S3_REGION: us-east-1
+    TINYDM_S3_ENDPOINT: http://minio:9000
+    TINYDM_S3_KEY_ID: minioadmin
+    TINYDM_S3_SECRET: minioadmin
+    TINYDM_JWT_SECRET: "${TINYDM_JWT_SECRET:-change-me-in-production-32-chars!!}"
+    TINYDM_BOOTSTRAP_ADMIN_PASS: "${BOOTSTRAP_PASS:-}"
+    TINYDM_BOOTSTRAP_ADMIN_EMAIL: admin@example.com
+  healthcheck:
+    test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+    interval: 10s
+    timeout: 5s
+    retries: 5
+    start_period: 15s
+
+services:
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tinydm
+      POSTGRES_PASSWORD: tinydm
+      POSTGRES_DB: tinydm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tinydm -d tinydm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Expose only to the internal compose network by default.
+    # Uncomment to expose to the host for debugging:
+    # ports:
+    #   - "5432:5432"
+
+  # ── MinIO (S3-compatible object store) ───────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9001:9001"   # MinIO console
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── TinyDM nodes ─────────────────────────────────────────────────────────
+  tinydm-1:
+    <<: *tinydm-common
+    environment:
+      <<: *tinydm-common
+      TINYDM_NODE_ID: tinydm-1
+      TINYDM_DB_DRIVER: postgres
+      TINYDM_DB_DSN: "host=postgres port=5432 user=tinydm password=tinydm dbname=tinydm sslmode=disable"
+      TINYDM_STORAGE_BACKEND: s3
+      TINYDM_S3_BUCKET: tinydm-docs
+      TINYDM_S3_REGION: us-east-1
+      TINYDM_S3_ENDPOINT: http://minio:9000
+      TINYDM_S3_KEY_ID: minioadmin
+      TINYDM_S3_SECRET: minioadmin
+      TINYDM_JWT_SECRET: "${TINYDM_JWT_SECRET:-change-me-in-production-32-chars!!}"
+      TINYDM_BOOTSTRAP_ADMIN_PASS: "${BOOTSTRAP_PASS:-}"
+      TINYDM_BOOTSTRAP_ADMIN_EMAIL: admin@example.com
+
+  tinydm-2:
+    <<: *tinydm-common
+    environment:
+      <<: *tinydm-common
+      TINYDM_NODE_ID: tinydm-2
+      TINYDM_DB_DRIVER: postgres
+      TINYDM_DB_DSN: "host=postgres port=5432 user=tinydm password=tinydm dbname=tinydm sslmode=disable"
+      TINYDM_STORAGE_BACKEND: s3
+      TINYDM_S3_BUCKET: tinydm-docs
+      TINYDM_S3_REGION: us-east-1
+      TINYDM_S3_ENDPOINT: http://minio:9000
+      TINYDM_S3_KEY_ID: minioadmin
+      TINYDM_S3_SECRET: minioadmin
+      TINYDM_JWT_SECRET: "${TINYDM_JWT_SECRET:-change-me-in-production-32-chars!!}"
+
+  tinydm-3:
+    <<: *tinydm-common
+    environment:
+      <<: *tinydm-common
+      TINYDM_NODE_ID: tinydm-3
+      TINYDM_DB_DRIVER: postgres
+      TINYDM_DB_DSN: "host=postgres port=5432 user=tinydm password=tinydm dbname=tinydm sslmode=disable"
+      TINYDM_STORAGE_BACKEND: s3
+      TINYDM_S3_BUCKET: tinydm-docs
+      TINYDM_S3_REGION: us-east-1
+      TINYDM_S3_ENDPOINT: http://minio:9000
+      TINYDM_S3_KEY_ID: minioadmin
+      TINYDM_S3_SECRET: minioadmin
+      TINYDM_JWT_SECRET: "${TINYDM_JWT_SECRET:-change-me-in-production-32-chars!!}"
+
+  # ── nginx load balancer ───────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - tinydm-1
+      - tinydm-2
+      - tinydm-3
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.cluster.conf:/etc/nginx/nginx.conf:ro
+
+volumes:
+  postgres_data:
+  minio_data:

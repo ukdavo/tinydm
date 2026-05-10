@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"tinydm/internal/auth"
+	"tinydm/internal/cluster"
 	"tinydm/internal/meta"
 	"tinydm/internal/repo"
 	"tinydm/internal/storage"
@@ -23,11 +24,12 @@ type DocumentHandler struct {
 	store     *repo.Store
 	authStore *auth.Store
 	storage   storage.Store
+	locker    cluster.Locker
 }
 
 // NewDocumentHandler creates a new DocumentHandler.
-func NewDocumentHandler(store *repo.Store, authStore *auth.Store, storage storage.Store) *DocumentHandler {
-	return &DocumentHandler{store: store, authStore: authStore, storage: storage}
+func NewDocumentHandler(store *repo.Store, authStore *auth.Store, storage storage.Store, locker cluster.Locker) *DocumentHandler {
+	return &DocumentHandler{store: store, authStore: authStore, storage: storage, locker: locker}
 }
 
 // List handles GET /.../{bucketID}/documents
@@ -87,6 +89,15 @@ func (h *DocumentHandler) Get(w http.ResponseWriter, r *http.Request) {
 func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	bucket := bucketFromCtx(r)
 	p, _ := auth.PrincipalFromContext(r.Context())
+
+	// Acquire a cluster-wide lock on the bucket to serialise concurrent
+	// document creation and prevent name-collision races across nodes.
+	unlock, err := h.locker.Lock(r.Context(), "bucket:"+bucket.ID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "could not acquire lock")
+		return
+	}
+	defer unlock()
 
 	// Hard cap on total upload size before touching the multipart parser.
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
@@ -174,6 +185,15 @@ func (h *DocumentHandler) Download(w http.ResponseWriter, r *http.Request) {
 func (h *DocumentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	doc := documentFromCtx(r)
 	p, _ := auth.PrincipalFromContext(r.Context())
+
+	// Acquire a cluster-wide lock on this document to prevent concurrent
+	// updates from racing across nodes.
+	unlock, err := h.locker.Lock(r.Context(), "doc:"+doc.ID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "could not acquire lock")
+		return
+	}
+	defer unlock()
 
 	// Hard cap on total upload size before touching the multipart parser.
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
@@ -270,6 +290,15 @@ func (h *DocumentHandler) RestoreVersion(w http.ResponseWriter, r *http.Request)
 	doc := documentFromCtx(r)
 	version := versionFromCtx(r)
 	p, _ := auth.PrincipalFromContext(r.Context())
+
+	// Lock the document for the duration of the restore to prevent racing
+	// updates from another node.
+	unlock, err := h.locker.Lock(r.Context(), "doc:"+doc.ID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "could not acquire lock")
+		return
+	}
+	defer unlock()
 
 	updated, err := h.store.RestoreDocumentVersion(r.Context(), doc.ID, version.ID, p.ID)
 	if err != nil {

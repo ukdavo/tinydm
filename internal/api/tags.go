@@ -6,17 +6,19 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"tinydm/internal/cluster"
 	"tinydm/internal/repo"
 )
 
 // TagHandler handles tag CRUD for documents.
 type TagHandler struct {
-	store *repo.Store
+	store  *repo.Store
+	locker cluster.Locker
 }
 
 // NewTagHandler creates a new TagHandler.
-func NewTagHandler(store *repo.Store) *TagHandler {
-	return &TagHandler{store: store}
+func NewTagHandler(store *repo.Store, locker cluster.Locker) *TagHandler {
+	return &TagHandler{store: store, locker: locker}
 }
 
 // List handles GET .../documents/{documentID}/tags
@@ -38,6 +40,14 @@ func (h *TagHandler) List(w http.ResponseWriter, r *http.Request) {
 // Accepts {"tags": ["a", "b"]} and atomically replaces all tags.
 func (h *TagHandler) Replace(w http.ResponseWriter, r *http.Request) {
 	doc := documentFromCtx(r)
+
+	unlock, err := h.locker.Lock(r.Context(), "doc:"+doc.ID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "could not acquire lock")
+		return
+	}
+	defer unlock()
+
 	var body struct {
 		Tags []string `json:"tags"`
 	}

@@ -10,8 +10,9 @@ import (
 // Values are loaded from environment variables with sensible defaults.
 type Config struct {
 	// Server
-	Host string // TINYDM_HOST (default: 0.0.0.0)
-	Port int    // TINYDM_PORT (default: 8080)
+	Host   string // TINYDM_HOST (default: 0.0.0.0)
+	Port   int    // TINYDM_PORT (default: 8080)
+	NodeID string // TINYDM_NODE_ID — stable node identifier for clustering (default: hostname)
 
 	// Database
 	// DBDriver selects the backend: "sqlite" (default) or "postgres".
@@ -66,6 +67,7 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		Host:               getEnv("TINYDM_HOST", "0.0.0.0"),
 		Port:               getEnvInt("TINYDM_PORT", 8080),
+		NodeID:             getNodeID(),
 		DBDriver:           getEnv("TINYDM_DB_DRIVER", "sqlite"),
 		DBPath:             getEnv("TINYDM_DB_PATH", "tinydm.db"),
 		DBDSN:              getEnv("TINYDM_DB_DSN", ""),
@@ -148,6 +150,18 @@ func (c *Config) DSN() string {
 		return c.DBDSN
 	}
 	return c.DBPath
+}
+
+// getNodeID returns the value of TINYDM_NODE_ID, falling back to the system
+// hostname. This value is used to identify nodes in a multi-node cluster.
+func getNodeID() string {
+	if v := os.Getenv("TINYDM_NODE_ID"); v != "" {
+		return v
+	}
+	if h, err := os.Hostname(); err == nil {
+		return h
+	}
+	return "unknown"
 }
 
 func getEnv(key, fallback string) string {

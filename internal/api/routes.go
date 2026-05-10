@@ -7,6 +7,7 @@ import (
 
 	"tinydm/internal/audit"
 	"tinydm/internal/auth"
+	"tinydm/internal/cluster"
 	"tinydm/internal/config"
 	"tinydm/internal/repo"
 	"tinydm/internal/storage"
@@ -14,14 +15,14 @@ import (
 
 // RegisterRoutes mounts all API v1 routes onto r.
 // All routes under /api/v1 (except /auth/login) require authentication.
-func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, authStore *auth.Store, store storage.Store, auditStore *audit.Store) {
+func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, authStore *auth.Store, store storage.Store, auditStore *audit.Store, locker cluster.Locker) {
 	authHandler := NewAuthHandler(cfg, authStore)
 	tenantHandler := NewTenantHandler(repoStore, authStore)
 	projectHandler := NewProjectHandler(repoStore, authStore)
 	bucketHandler := NewBucketHandler(repoStore, authStore)
-	docHandler := NewDocumentHandler(repoStore, authStore, store)
-	tagHandler := NewTagHandler(repoStore)
-	propHandler := NewPropertyHandler(repoStore)
+	docHandler := NewDocumentHandler(repoStore, authStore, store, locker)
+	tagHandler := NewTagHandler(repoStore, locker)
+	propHandler := NewPropertyHandler(repoStore, locker)
 	auditHandler := NewAuditHandler(auditStore)
 	userHandler := NewUserHandler(authStore)
 
