@@ -152,33 +152,42 @@ database as the coordination medium — no extra infrastructure required.
 
 | Concern | Decision | Rationale |
 |---------|----------|-----------|
-| File storage | S3-compatible backend (+ local fallback) | Nodes cannot share a local filesystem; S3 is already abstracted by `storage.Store` |
+| File storage | Pluggable backend framework (local + S3 + Azure + GCS) | `storage.Store` interface already abstracts all callers; new backends add one file each |
+| Storage config | `TINYDM_STORAGE_BACKEND=local\|s3\|azure\|gcs` + per-backend env vars | Explicit driver name; avoids DSN parsing complexity; consistent with `TINYDM_DB_DRIVER` |
 | Database | PostgreSQL for clusters; SQLite stays for single-node | PG has advisory locks, concurrent writers, and connection pooling |
 | Document locking | PostgreSQL advisory locks via `cluster.Locker` interface | Serialises concurrent writes to the same document; no-op impl for SQLite |
 | Leader election | DB heartbeat table + advisory lock | Background tasks run on exactly one node; no extra service needed |
 | Session state | Already stateless (JWT) | No changes needed to auth layer |
 | Health check | Extended to probe DB + storage backend | Load balancer can route around degraded nodes |
+| Local testing (S3) | `gofakes3` in-process fake + MinIO for cluster tests | Unit tests stay hermetic; cluster tests use real MinIO to match production |
+| Local testing (Azure) | Azurite Docker image (`mcr.microsoft.com/azure-devtools/azurite`) | Official Microsoft emulator; identical API surface to production Azure Blob Storage |
+| Local testing (GCS) | `fake-gcs-server` Docker image (`fsouza/fake-gcs-server`) | Widely used GCS emulator; supports the same client library used in production |
 
-### New packages
+### New packages and files
 
-| Package | Responsibility |
-|---------|---------------|
-| `internal/cluster` | `Locker` interface, PG advisory lock impl, no-op impl, leader elector |
-| `internal/storage/s3.go` | `S3Store` — AWS SDK v2, MinIO-compatible endpoint, same content-addressed key layout |
+| Path | Responsibility |
+|------|---------------|
+| `internal/cluster/` | `Locker` interface, PG advisory lock impl, no-op impl, leader elector |
+| `internal/storage/s3.go` | `S3Store` — AWS SDK v2; MinIO-compatible via custom endpoint |
+| `internal/storage/azure.go` | `AzureStore` — Azure SDK for Go (`azblob`); Azurite-compatible |
+| `internal/storage/gcs.go` | `GCSStore` — GCS client library; fake-gcs-server-compatible |
+| `internal/storage/factory.go` | `New(cfg) (Store, error)` — selects backend from config |
 
 ### Phase 9 tasks
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 9.1 | S3 storage backend + tests | ⬜ | `internal/storage/s3.go` — `S3Store` satisfies `Store` interface; AWS SDK v2; custom endpoint for MinIO; same `ab/cd/abcdef…` key layout as local. Unit tests use `github.com/johannesboyne/gofakes3` in-process fake (no Docker); ships alongside the implementation |
-| 9.2 | Storage backend factory + config | ⬜ | `TINYDM_STORAGE_BACKEND=local\|s3`; `TINYDM_S3_BUCKET`, `TINYDM_S3_ENDPOINT`, `TINYDM_S3_REGION`, `TINYDM_S3_KEY_ID`, `TINYDM_S3_SECRET`; `storage.New(cfg)` used in `main.go` |
-| 9.3 | `cluster.Locker` interface + implementations | ⬜ | `Lock(ctx, key) (unlock func(), error)`; PG impl uses `pg_advisory_xact_lock(hashtext(key))`; no-op impl for SQLite/single-node; selected by DB driver at startup |
-| 9.4 | Wire document locking into write paths | ⬜ | Acquire lock before document `PUT`, version restore, and tag/property bulk replace; release on handler return |
-| 9.5 | Leader election — `cluster.LeaderElector` | ⬜ | `cluster_nodes` migration: `node_id`, `last_heartbeat`, `is_leader`; background goroutine heartbeats every 5 s; leader = node holding PG advisory lock `pg_try_advisory_lock(fixed_oid)`; `IsLeader() bool` used by background tasks |
-| 9.6 | Enhanced `/health` endpoint | ⬜ | DB ping + storage backend probe (`HeadBucket` for S3, `Stat` for local); response: `{"status":"ok\|degraded","db":"ok\|error","storage":"ok\|error","node_id":"…"}` |
-| 9.7 | Cluster docker-compose + nginx config | ⬜ | `docker-compose.cluster.yml`: 3 tinydm nodes + nginx upstream + postgres + MinIO; upstream health-check directive; sticky sessions not required (stateless JWT) |
-| 9.8 | Update DEPLOYMENT.md with cluster section | ⬜ | Multi-node setup, node ID config, S3/MinIO config, nginx upstream block, rolling upgrade procedure |
-| 9.9 | Cluster integration test | ⬜ | `test_cluster.sh`: start 2 nodes against shared DB + MinIO; upload via node 1; download via node 2; concurrent write conflict test |
+| 9.1 | Storage backend framework | ⬜ | Define `storage.New(cfg)` factory in `internal/storage/factory.go`; add `TINYDM_STORAGE_BACKEND` to config; update `main.go` to use factory instead of direct `NewLocal` call |
+| 9.2 | S3 backend + tests | ⬜ | `internal/storage/s3.go` — AWS SDK v2; custom endpoint for MinIO; same `ab/cd/abcdef…` key layout. Unit tests use `gofakes3` in-process fake. Config: `TINYDM_S3_BUCKET`, `TINYDM_S3_ENDPOINT`, `TINYDM_S3_REGION`, `TINYDM_S3_KEY_ID`, `TINYDM_S3_SECRET` |
+| 9.3 | Azure Blob backend + tests | ⬜ | `internal/storage/azure.go` — `github.com/Azure/azure-sdk-for-go/sdk/storage/azblob`; Azurite-compatible via custom endpoint. Unit tests use Azurite via `testcontainers-go` or a pre-started local instance. Config: `TINYDM_AZURE_ACCOUNT`, `TINYDM_AZURE_KEY`, `TINYDM_AZURE_CONTAINER`, `TINYDM_AZURE_ENDPOINT` |
+| 9.4 | GCS backend + tests | ⬜ | `internal/storage/gcs.go` — `cloud.google.com/go/storage`; fake-gcs-server-compatible via `STORAGE_EMULATOR_HOST`. Config: `TINYDM_GCS_BUCKET`, `TINYDM_GCS_PROJECT`, `TINYDM_GCS_CREDENTIALS_FILE` |
+| 9.5 | `cluster.Locker` interface + implementations | ⬜ | `Lock(ctx, key) (unlock func(), error)`; PG impl uses `pg_advisory_xact_lock(hashtext(key))`; no-op impl for SQLite/single-node; selected by DB driver at startup |
+| 9.6 | Wire document locking into write paths | ⬜ | Acquire lock before document `PUT`, version restore, and tag/property bulk replace; release on handler return |
+| 9.7 | Leader election — `cluster.LeaderElector` | ⬜ | `cluster_nodes` migration: `node_id`, `last_heartbeat`, `is_leader`; background goroutine heartbeats every 5 s; leader = node holding PG advisory lock `pg_try_advisory_lock(fixed_oid)`; `IsLeader() bool` used by background tasks |
+| 9.8 | Enhanced `/health` endpoint | ⬜ | DB ping + storage backend probe (`Ping()` method on `Store`); response: `{"status":"ok\|degraded","db":"ok\|error","storage":"ok\|error","node_id":"…"}` |
+| 9.9 | Cluster docker-compose + nginx config | ⬜ | `docker-compose.cluster.yml`: 3 tinydm nodes + nginx upstream + postgres + MinIO; upstream health-check directive; sticky sessions not required (stateless JWT) |
+| 9.10 | Update DEPLOYMENT.md with cluster section | ⬜ | Multi-node setup, node ID config, per-backend config reference, nginx upstream block, rolling upgrade procedure |
+| 9.11 | Cluster integration test | ⬜ | `test_cluster.sh`: start 2 nodes against shared DB + MinIO; upload via node 1; download via node 2; concurrent write conflict test |
 
 ---
 
@@ -188,10 +197,9 @@ Items from the spec not in scope for the initial release.
 
 | Feature | Notes |
 |---------|-------|
-| Document locking | Pessimistic lock with owner + expiry |
+| Document locking (user-facing) | Pessimistic lock with owner + expiry — distinct from the internal cluster lock in 9.5 |
 | Explicit versioning | Named/tagged versions beyond auto-snapshots |
 | Full text indexing | Likely SQLite FTS5 or external engine |
-| Multiple content stores | S3, NFS — storage interface already planned |
 | OAuth | SSO / social login support |
 | Associations / relations | Links between documents |
 | Full EXIF extraction | Requires e.g. `github.com/rwcarlsen/goexif`; hook in `internal/meta` already present |
@@ -213,4 +221,7 @@ Record of key technical decisions made during the project.
 | 2026-05-07 | Admin UI: HTMX + Go templates | No build step, embedded in binary, fits "simple admin" requirement |
 | 2026-05-07 | Auth: bcrypt + JWT + opaque API tokens | Standard, secure, no external dependencies |
 | 2026-05-10 | Cluster coordination: DB-based advisory locks | No extra infrastructure; PG advisory locks give automatic release on disconnect; no-op impl keeps SQLite working |
+| 2026-05-10 | Storage backend config: explicit driver name over DSN | `TINYDM_STORAGE_BACKEND=s3\|azure\|gcs\|local` mirrors `TINYDM_DB_DRIVER`; avoids URL parsing; each backend has its own env vars |
 | 2026-05-10 | S3 test strategy: gofakes3 in-process + MinIO for cluster tests | Unit tests stay hermetic (no Docker); cluster integration tests use real MinIO to match production behaviour |
+| 2026-05-10 | Azure test strategy: Azurite emulator | Official Microsoft emulator; identical API surface; run via Docker or testcontainers-go |
+| 2026-05-10 | GCS test strategy: fake-gcs-server + STORAGE_EMULATOR_HOST | Standard GCS emulator env var recognised by the official Go client library; no code changes needed to switch between real and fake |
