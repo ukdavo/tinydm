@@ -2,7 +2,7 @@
 
 A simple, self-hosted document management system. Small footprint, easy to deploy, no external dependencies.
 
-> **Status:** Phases 1–8 (security, tests, cross-platform builds, PostgreSQL support) complete. The full REST API, document versioning, tags, custom properties, automatic metadata extraction, an immutable audit log, a document & bucket management UI, and an HTMX admin web UI are all working. SQLite is the default database; PostgreSQL is available as an alternative backend.
+> **Status:** All phases complete. The full REST API, document versioning, tags, custom properties, automatic metadata extraction, an immutable audit log, an HTMX admin web UI, OpenAPI 3.1 documentation, and a performance benchmark suite are all working. SQLite is the default database; PostgreSQL is available as an alternative backend. See [DEPLOYMENT.md](./DEPLOYMENT.md) for production deployment instructions and [BENCHMARKS.md](./BENCHMARKS.md) for performance baselines.
 
 ---
 
@@ -242,13 +242,22 @@ Tags and custom properties are not paginated — they return bare arrays/objects
 
 ### Endpoints
 
+#### API documentation
+
+Interactive documentation is embedded in the binary — no separate tool required.
+
+| URL | Description |
+|---|---|
+| `/api/docs` | Swagger UI (OpenAPI 3.1 interactive explorer) |
+| `/api/docs/openapi.yaml` | Raw OpenAPI 3.1 spec (YAML) |
+
 #### System
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/health` | None | Liveness / readiness check |
-| `POST` | `/api/v1/auth/login` | None | Exchange credentials for a JWT |
-| `GET` | `/api/v1/auth/me` | Required | Returns the current principal |
+| `GET` | `/health` | None | Liveness / readiness check — returns `{"status":"ok"}` |
+| `POST` | `/api/v1/auth/login` | None | Exchange credentials for a JWT — body: `{"tenant_id":"…","username":"…","password":"…"}` |
+| `GET` | `/api/v1/auth/me` | Required | Returns the authenticated principal (ID, tenant, role) |
 
 #### Tenants _(admin only for write operations)_
 
@@ -303,7 +312,12 @@ Tags and custom properties are not paginated — they return bare arrays/objects
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/v1/tenants/{tenantID}/users` | List users _(paginated)_. Password hashes are never returned. |
-| `GET` | `/api/v1/tenants/{tenantID}/apikeys` | List API keys _(paginated)_. Key hashes and full key values are never returned; only the `key_prefix` is exposed. |
+| `POST` | `/api/v1/tenants/{tenantID}/users` | Create a user — body: `{"username":"…","email":"…","password":"…","user_type":"admin\|user"}` |
+| `PUT` | `/api/v1/tenants/{tenantID}/users/{userID}/active` | Activate or deactivate a user — body: `{"active":true}` |
+| `DELETE` | `/api/v1/tenants/{tenantID}/users/{userID}` | Delete a user |
+| `GET` | `/api/v1/tenants/{tenantID}/apikeys` | List API keys _(paginated)_. Hashes and full key values are never returned; only `key_prefix` is exposed. |
+| `POST` | `/api/v1/tenants/{tenantID}/apikeys` | Generate an API key — plaintext returned once only; body: `{"name":"…","expires_at":"…"}` |
+| `DELETE` | `/api/v1/tenants/{tenantID}/apikeys/{keyID}` | Revoke an API key |
 
 #### Tags
 
@@ -355,11 +369,14 @@ These properties are visible via `GET …/documents/{id}/properties` and can be 
 ```bash
 make build        # compile for the current platform
 make build-all    # cross-compile (Linux, macOS, Windows — amd64 + arm64)
+make dist         # build all platforms and package into compressed archives
 make run          # go run ./cmd/tinydm
-make test         # go test ./... -race
+make test         # go test ./... -race -timeout 60s
+make bench        # go test ./... -bench=. -benchmem -benchtime=3s (no unit tests)
 make lint         # golangci-lint run
 make sqlc         # regenerate DB code from SQL queries (requires sqlc)
 make docker-build # build Docker image
+make docker-run   # run latest Docker image with a local data volume
 make clean        # remove bin/ and local *.db files
 ```
 
@@ -411,8 +428,10 @@ tinydm/
 ├── test_phase7.sh      Phase 7 integration tests — document & bucket management UI
 ├── test_pagination.sh  Pagination integration tests — envelope shape, limit/offset, has_more
 ├── Dockerfile
-├── docker-compose.yml
+├── docker-compose.yml  SQLite (default) + postgres profile
 ├── Makefile
+├── BENCHMARKS.md       Benchmark methodology, how to run, baseline results template
+├── DEPLOYMENT.md       Production deployment guide (binary, Docker, Compose, nginx, backup)
 ├── PLAN.md             Living project plan with per-task status
 └── SPEC.md             Full project specification
 ```
@@ -430,7 +449,7 @@ make sqlc
 
 ## Roadmap
 
-See [PLAN.md](./PLAN.md) for the full task-level breakdown. For production deployment instructions see [DEPLOYMENT.md](./DEPLOYMENT.md).
+See [PLAN.md](./PLAN.md) for the full task-level breakdown, [DEPLOYMENT.md](./DEPLOYMENT.md) for production deployment instructions, and [BENCHMARKS.md](./BENCHMARKS.md) for performance baseline results.
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -441,9 +460,11 @@ See [PLAN.md](./PLAN.md) for the full task-level breakdown. For production deplo
 | 5 | Audit log | ✅ Done |
 | 6 | Admin web UI (HTMX) | ✅ Done |
 | 7 | Document & bucket management UI — search, tags, properties, versions; REST + web UI pagination | ✅ Done |
-| 8 | Hardening — unit & integration tests, security review, cross-platform CI/CD, PostgreSQL support | 🔄 In progress (8.1–8.5 done) |
-| — | Clustering — multi-node coordination, distributed locking, replicated storage | ⬜ Backlog |
-| — | Caching — response caching layer, cache invalidation strategy, TTL configuration | ⬜ Backlog |
+| 8 | Hardening — unit & integration tests, security review, cross-platform builds, PostgreSQL, OpenAPI docs, deployment guide, performance benchmarks | ✅ Done |
+| — | Document locking — pessimistic lock with owner + expiry | ⬜ Backlog |
+| — | Full-text search — SQLite FTS5 or external engine | ⬜ Backlog |
+| — | Cloud storage backends — S3, NFS (storage interface already abstracted) | ⬜ Backlog |
+| — | OAuth / SSO — social login support | ⬜ Backlog |
 
 ---
 
