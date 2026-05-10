@@ -93,6 +93,58 @@ func sessionReq(t *testing.T, method, rawURL, token string, body io.Reader) *htt
 	return req
 }
 
+// TestAuditLog_ScopedToTenant verifies that GET /admin/tenants/{tenantID}/audit
+// returns a 200 for the user's own tenant and that the page exists at the
+// tenant-scoped URL (not the old global /admin/audit).
+func TestAuditLog_ScopedToTenant(t *testing.T) {
+	srv, _, tenant, _, token := newWebServer(t)
+
+	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/tenants/"+tenant.ID+"/audit", token, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET audit: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", resp.StatusCode)
+	}
+}
+
+// TestAuditLog_GlobalRouteGone verifies the old /admin/audit route no longer exists.
+func TestAuditLog_GlobalRouteGone(t *testing.T) {
+	srv, _, _, _, token := newWebServer(t)
+
+	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/audit", token, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /admin/audit: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		t.Errorf("expected /admin/audit to be gone (not 200), got %d", resp.StatusCode)
+	}
+}
+
+// TestAuditLog_CrossTenantForbidden verifies an admin cannot view another tenant's audit log.
+func TestAuditLog_CrossTenantForbidden(t *testing.T) {
+	srv, _, _, _, token := newWebServer(t)
+
+	// Use a plausible-but-wrong tenant ID; the handler must reject it.
+	fakeID := "00000000-0000-0000-0000-000000000000"
+	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/tenants/"+fakeID+"/audit", token, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET cross-tenant audit: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		t.Errorf("expected non-200 for cross-tenant audit, got %d", resp.StatusCode)
+	}
+}
+
 // TestPasswordForm_ReturnsInputFragment verifies that GET /admin/users/{id}/password-form
 // returns an HTML fragment containing a password input for the user.
 func TestPasswordForm_ReturnsInputFragment(t *testing.T) {

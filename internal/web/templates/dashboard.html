@@ -33,7 +33,7 @@
 <div class="card">
   <div class="card-header">
     <h2>Recent Activity</h2>
-    <a href="/admin/audit" class="btn btn-ghost btn-sm">View all →</a>
+    <a href="/admin/tenants/{{.Principal.TenantID}}/audit" class="btn btn-ghost btn-sm">View all →</a>
   </div>
   <div class="table-wrap">
     {{if .RecentAudit}}

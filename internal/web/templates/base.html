@@ -26,7 +26,7 @@
 
     <p class="sidebar-section">Management</p>
     <ul class="sidebar-nav">
-      <li><a href="/admin/audit" {{if eq .Page "audit"}}class="active"{{end}}>
+      <li><a href="/admin/tenants/{{.Principal.TenantID}}/audit" {{if eq .Page "audit"}}class="active"{{end}}>
         <span class="icon">≡</span> Audit Log
       </a></li>
     </ul>

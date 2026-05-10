@@ -167,9 +167,9 @@ func RegisterRoutes(r chi.Router, h *Handler) {
 		r.Post("/admin/tenants/{tenantID}/apikeys", h.createTenantAPIKey)
 		r.Post("/admin/tenants/{tenantID}/apikeys/{keyID}/revoke", h.revokeTenantAPIKey)
 
-		// Audit log
-		r.Get("/admin/audit", h.auditLog)
-		r.Get("/admin/audit/events", h.auditEvents) // HTMX partial
+		// Audit log — scoped to tenant
+		r.Get("/admin/tenants/{tenantID}/audit", h.auditLog)
+		r.Get("/admin/tenants/{tenantID}/audit/events", h.auditEvents) // HTMX partial
 	})
 
 	// Redirect / → /admin/

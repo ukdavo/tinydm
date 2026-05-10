@@ -796,20 +796,27 @@ func (h *Handler) revokeTenantAPIKey(w http.ResponseWriter, r *http.Request) {
 
 type auditData struct {
 	basePage
-	Events []*audit.Event
-	Pager  WebPagination
+	TenantID string
+	Events   []*audit.Event
+	Pager    WebPagination
 }
 
 func (h *Handler) auditLog(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.PrincipalFromContext(r.Context())
+	tenantID := chi.URLParam(r, "tenantID")
+	if p.UserType != auth.UserTypeSuperAdmin && tenantID != p.TenantID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	page, limit := parsePage(r)
 	events, total, _ := h.audit.List(r.Context(), audit.Filter{
-		TenantID: p.TenantID,
+		TenantID: tenantID,
 		Limit:    limit,
 		Offset:   pageOffset(page, limit),
 	})
 	h.render(w, "audit", auditData{
 		basePage: h.base(r, "audit"),
+		TenantID: tenantID,
 		Events:   events,
 		Pager:    newWebPagination(total, page, limit, ""),
 	})
@@ -1186,6 +1193,11 @@ func (h *Handler) restoreDocumentVersionWeb(w http.ResponseWriter, r *http.Reque
 // auditEvents handles the HTMX partial for filtered audit rows.
 func (h *Handler) auditEvents(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.PrincipalFromContext(r.Context())
+	tenantID := chi.URLParam(r, "tenantID")
+	if p.UserType != auth.UserTypeSuperAdmin && tenantID != p.TenantID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	q := r.URL.Query()
 	page, limit := parsePage(r)
 
@@ -1203,7 +1215,7 @@ func (h *Handler) auditEvents(w http.ResponseWriter, r *http.Request) {
 	principal := q.Get("principal")
 
 	events, total, _ := h.audit.List(r.Context(), audit.Filter{
-		TenantID:  p.TenantID,
+		TenantID:  tenantID,
 		Action:    action,
 		Principal: principal,
 		From:      from,
