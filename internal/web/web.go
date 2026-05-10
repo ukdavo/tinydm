@@ -152,9 +152,9 @@ func RegisterRoutes(r chi.Router, h *Handler) {
 		// Document version restore
 		r.Post("/admin/documents/{documentID}/versions/{versionID}/restore", h.restoreDocumentVersionWeb)
 
-		// Users
-		r.Get("/admin/users", h.users)
-		r.Post("/admin/users", h.createUser)
+		// Users — scoped to tenant
+		r.Get("/admin/tenants/{tenantID}/users", h.tenantUsers)
+		r.Post("/admin/tenants/{tenantID}/users", h.createTenantUser)
 		r.Post("/admin/users/{userID}/activate", h.activateUser)
 		r.Post("/admin/users/{userID}/deactivate", h.deactivateUser)
 		r.Delete("/admin/users/{userID}", h.deleteUser)

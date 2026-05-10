@@ -241,6 +241,20 @@ type tenantsData struct {
 }
 
 func (h *Handler) tenants(w http.ResponseWriter, r *http.Request) {
+	p, _ := auth.PrincipalFromContext(r.Context())
+	if !p.IsSuperAdmin() {
+		tenant, _ := h.repo.GetTenant(r.Context(), p.TenantID)
+		var tenants []*repo.Tenant
+		if tenant != nil {
+			tenants = append(tenants, tenant)
+		}
+		h.render(w, "tenants", tenantsData{
+			basePage: h.base(r, "tenants"),
+			Tenants:  tenants,
+			Pager:    newWebPagination(len(tenants), 1, len(tenants)+1, ""),
+		})
+		return
+	}
 	page, limit := parsePage(r)
 	tenants, total, _ := h.repo.ListTenants(r.Context(), repo.PageOpts{Limit: limit, Offset: pageOffset(page, limit)})
 	h.render(w, "tenants", tenantsData{
@@ -544,23 +558,32 @@ func (h *Handler) downloadDocument(w http.ResponseWriter, r *http.Request) {
 
 type usersData struct {
 	basePage
-	Users []*auth.User
-	Pager WebPagination
+	Tenant *repo.Tenant
+	Users  []*auth.User
+	Pager  WebPagination
 }
 
-func (h *Handler) users(w http.ResponseWriter, r *http.Request) {
-	p, _ := auth.PrincipalFromContext(r.Context())
+// tenantUsers renders GET /admin/tenants/{tenantID}/users
+func (h *Handler) tenantUsers(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	tenant, err := h.repo.GetTenant(r.Context(), tenantID)
+	if err != nil || tenant == nil {
+		http.NotFound(w, r)
+		return
+	}
 	page, limit := parsePage(r)
-	users, total, _ := h.auth.ListUsers(r.Context(), p.TenantID, limit, pageOffset(page, limit))
+	users, total, _ := h.auth.ListUsers(r.Context(), tenantID, limit, pageOffset(page, limit))
 	h.render(w, "users", usersData{
 		basePage: h.base(r, "users"),
+		Tenant:   tenant,
 		Users:    users,
 		Pager:    newWebPagination(total, page, limit, ""),
 	})
 }
 
-func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
-	p, _ := auth.PrincipalFromContext(r.Context())
+// createTenantUser handles POST /admin/tenants/{tenantID}/users
+func (h *Handler) createTenantUser(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
 	username := r.FormValue("username")
 	email := r.FormValue("email")
 	password := r.FormValue("password")
@@ -582,7 +605,7 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.auth.CreateUser(r.Context(), p.TenantID, username, email, hash, userType)
+	user, err := h.auth.CreateUser(r.Context(), tenantID, username, email, hash, userType)
 	if err != nil {
 		http.Error(w, "create failed: "+err.Error(), http.StatusInternalServerError)
 		return

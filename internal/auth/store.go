@@ -333,20 +333,20 @@ func (s *Store) GetUserRights(ctx context.Context, tenantID, userID string) ([]R
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
-// EnsureAdminUser creates the global superadmin user if no users exist in the
-// DB. This is a one-time bootstrap so a fresh deployment can be reached via
-// the API. The superadmin lives in the system tenant and has unrestricted
-// access to all domains.
-func (s *Store) EnsureAdminUser(ctx context.Context, tenantID, tenantName, username, email, password string) error {
+// EnsureAdminUser creates the global superadmin and a domain admin for the
+// bootstrap tenant if no users exist in the DB. It is a no-op on subsequent
+// calls. Returns the one-time plaintext password for the domain admin (non-empty
+// only on the very first call), or an error.
+func (s *Store) EnsureAdminUser(ctx context.Context, tenantID, tenantName, username, email, password string) (string, error) {
 	n, err := s.CountUsers(ctx)
 	if err != nil {
-		return fmt.Errorf("count users: %w", err)
+		return "", fmt.Errorf("count users: %w", err)
 	}
 	if n > 0 {
-		return nil // already bootstrapped
+		return "", nil // already bootstrapped
 	}
 
-	// Create the system tenant if it doesn't exist.
+	// Create the bootstrap tenant if it doesn't exist.
 	var exists int
 	_ = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tenants WHERE id = ?`, tenantID).Scan(&exists)
 	if exists == 0 {
@@ -358,21 +358,28 @@ func (s *Store) EnsureAdminUser(ctx context.Context, tenantID, tenantName, usern
 			`INSERT INTO tenants (id, name, description) VALUES (?, ?, ?)`,
 			tid, tenantName, "System tenant",
 		); err != nil {
-			return fmt.Errorf("create bootstrap tenant: %w", err)
+			return "", fmt.Errorf("create bootstrap tenant: %w", err)
 		}
 		tenantID = tid
 	}
 
 	hash, err := HashPassword(password)
 	if err != nil {
-		return fmt.Errorf("hash bootstrap password: %w", err)
+		return "", fmt.Errorf("hash bootstrap password: %w", err)
 	}
 
 	// The bootstrap user is a superadmin, not a plain domain admin.
 	if _, err := s.CreateUser(ctx, tenantID, username, email, hash, UserTypeSuperAdmin); err != nil {
-		return fmt.Errorf("create bootstrap superadmin: %w", err)
+		return "", fmt.Errorf("create bootstrap superadmin: %w", err)
 	}
-	return nil
+
+	// Also provision a domain admin for the bootstrap tenant so the default
+	// domain has a scoped admin account from day one.
+	_, domainAdminPass, err := s.CreateDomainAdmin(ctx, tenantID)
+	if err != nil {
+		return "", fmt.Errorf("create bootstrap domain admin: %w", err)
+	}
+	return domainAdminPass, nil
 }
 
 // CreateDomainAdmin creates a domain admin user for the given tenant and

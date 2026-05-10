@@ -20,7 +20,23 @@ func NewTenantHandler(store *repo.Store, authStore *auth.Store) *TenantHandler {
 }
 
 // List handles GET /api/v1/tenants
+// Superadmins see all tenants. Domain admins and regular users see only their
+// own tenant — they must not have knowledge of other domains.
 func (h *TenantHandler) List(w http.ResponseWriter, r *http.Request) {
+	p, _ := auth.PrincipalFromContext(r.Context())
+	if !p.IsSuperAdmin() {
+		tenant, err := h.store.GetTenant(r.Context(), p.TenantID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal error")
+			return
+		}
+		tenants := []*repo.Tenant{}
+		if tenant != nil {
+			tenants = append(tenants, tenant)
+		}
+		writePaged(w, tenants, len(tenants), 50, 0)
+		return
+	}
 	page := pageParams(r)
 	tenants, total, err := h.store.ListTenants(r.Context(), page)
 	if err != nil {

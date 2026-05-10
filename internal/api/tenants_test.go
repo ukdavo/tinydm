@@ -43,6 +43,50 @@ func TestTenants_List(t *testing.T) {
 	}
 }
 
+func TestTenants_List_DomainAdminSeesOnlyOwnTenant(t *testing.T) {
+	ts := newTestServer(t)
+
+	// Seed two separate tenants with their own admins.
+	tenantA, _ := ts.seedAdminUser(t, "Tenant A", "adminA", "pass")
+	ts.seedAdminUser(t, "Tenant B", "adminB", "pass")
+	tokenA := ts.login(t, tenantA.ID, "adminA", "pass")
+
+	var result map[string]any
+	resp := ts.doJSON(t, http.MethodGet, "/api/v1/tenants", nil, bearer(tokenA), &result)
+	defer resp.Body.Close()
+	assertStatus(t, resp, http.StatusOK)
+
+	data, _ := result["data"].([]any)
+	if len(data) != 1 {
+		t.Fatalf("domain admin should see exactly 1 tenant, got %d", len(data))
+	}
+	got := data[0].(map[string]any)
+	if got["id"] != tenantA.ID {
+		t.Errorf("domain admin sees wrong tenant: got %v, want %s", got["id"], tenantA.ID)
+	}
+}
+
+func TestTenants_List_SuperadminSeesAll(t *testing.T) {
+	ts := newTestServer(t)
+
+	// Create a superadmin tenant plus two additional tenants.
+	sysTenant, _ := ts.seedSuperadminUser(t, "System", "superadmin", "pass")
+	token := ts.login(t, sysTenant.ID, "superadmin", "pass")
+
+	ts.doJSON(t, http.MethodPost, "/api/v1/tenants", map[string]string{"name": "Alpha"}, bearer(token), nil)
+	ts.doJSON(t, http.MethodPost, "/api/v1/tenants", map[string]string{"name": "Beta"}, bearer(token), nil)
+
+	var result map[string]any
+	resp := ts.doJSON(t, http.MethodGet, "/api/v1/tenants", nil, bearer(token), &result)
+	defer resp.Body.Close()
+	assertStatus(t, resp, http.StatusOK)
+
+	data, _ := result["data"].([]any)
+	if len(data) < 3 {
+		t.Errorf("superadmin should see all tenants (at least 3), got %d", len(data))
+	}
+}
+
 func TestTenants_Create(t *testing.T) {
 	ts := newTestServer(t)
 	// Tenant create requires superadmin.

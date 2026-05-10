@@ -1,7 +1,15 @@
 {{define "title"}}Users{{end}}
 {{define "content"}}
+<div class="breadcrumb">
+  <a href="/admin/tenants">Tenants</a>
+  <span class="sep">›</span>
+  <a href="/admin/tenants/{{.Tenant.ID}}/projects">{{.Tenant.Name}}</a>
+  <span class="sep">›</span>
+  <span class="current">Users</span>
+</div>
+
 <div class="page-header">
-  <div><h1>Users</h1><p>Manage user accounts for tenant <strong>{{.Principal.TenantID}}</strong></p></div>
+  <div><h1>Users</h1><p>Tenant: <strong>{{.Tenant.ID}}</strong></p></div>
 </div>
 
 <div class="card">
@@ -49,7 +57,7 @@
       </select>
     </div>
     <button class="btn btn-primary"
-      hx-post="/admin/users"
+      hx-post="/admin/tenants/{{.Tenant.ID}}/users"
       hx-include="#new-user-name,#new-user-email,#new-user-pass,#new-user-role"
       hx-target="#users-list"
       hx-swap="beforeend"
@@ -66,7 +74,9 @@
   <td><strong>{{.Username}}</strong></td>
   <td class="muted">{{.Email}}</td>
   <td>
-    {{if eq (string .UserType) "admin"}}
+    {{if eq (string .UserType) "superadmin"}}
+      <span class="badge badge-purple">Superadmin</span>
+    {{else if eq (string .UserType) "admin"}}
       <span class="badge badge-blue">Admin</span>
     {{else}}
       <span class="badge badge-gray">User</span>
@@ -96,6 +106,7 @@
         Activate
       </button>
       {{end}}
+      {{if ne (string .UserType) "superadmin"}}
       <button class="btn btn-danger btn-sm"
         hx-delete="/admin/users/{{.ID}}"
         hx-target="#user-{{.ID}}"
@@ -103,6 +114,7 @@
         hx-confirm="Delete user '{{.Username}}'?">
         Delete
       </button>
+      {{end}}
     </div>
   </td>
 </tr>
