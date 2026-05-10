@@ -177,8 +177,8 @@ database as the coordination medium — no extra infrastructure required.
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 9.1 | Storage backend framework | ⬜ | Define `storage.New(cfg)` factory in `internal/storage/factory.go`; add `TINYDM_STORAGE_BACKEND` to config; update `main.go` to use factory instead of direct `NewLocal` call |
-| 9.2 | S3 backend + tests | ⬜ | `internal/storage/s3.go` — AWS SDK v2; custom endpoint for MinIO; same `ab/cd/abcdef…` key layout. Unit tests use `gofakes3` in-process fake. Config: `TINYDM_S3_BUCKET`, `TINYDM_S3_ENDPOINT`, `TINYDM_S3_REGION`, `TINYDM_S3_KEY_ID`, `TINYDM_S3_SECRET` |
+| 9.1 | Storage backend framework | ✅ | `storage.BackendConfig` + `storage.New()` factory; `TINYDM_STORAGE_BACKEND` + S3 vars in config; `main.go` updated |
+| 9.2 | S3 backend + tests | ✅ | `internal/storage/s3.go` (AWS SDK v2, MinIO-compatible); `internal/storage/s3_test.go` (gofakes3 in-process fake, 14 tests mirroring local store suite) |
 | 9.3 | Azure Blob backend + tests | ⬜ | `internal/storage/azure.go` — `github.com/Azure/azure-sdk-for-go/sdk/storage/azblob`; Azurite-compatible via custom endpoint. Unit tests use Azurite via `testcontainers-go` or a pre-started local instance. Config: `TINYDM_AZURE_ACCOUNT`, `TINYDM_AZURE_KEY`, `TINYDM_AZURE_CONTAINER`, `TINYDM_AZURE_ENDPOINT` |
 | 9.4 | GCS backend + tests | ⬜ | `internal/storage/gcs.go` — `cloud.google.com/go/storage`; fake-gcs-server-compatible via `STORAGE_EMULATOR_HOST`. Config: `TINYDM_GCS_BUCKET`, `TINYDM_GCS_PROJECT`, `TINYDM_GCS_CREDENTIALS_FILE` |
 | 9.5 | `cluster.Locker` interface + implementations | ⬜ | `Lock(ctx, key) (unlock func(), error)`; PG impl uses `pg_advisory_xact_lock(hashtext(key))`; no-op impl for SQLite/single-node; selected by DB driver at startup |

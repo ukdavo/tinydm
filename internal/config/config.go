@@ -23,7 +23,18 @@ type Config struct {
 	DBDSN string // TINYDM_DB_DSN
 
 	// File storage
+	// StorageBackend selects the storage driver: "local" (default), "s3", "azure", or "gcs".
+	StorageBackend string // TINYDM_STORAGE_BACKEND (default: "local")
+	// StoragePath is the root directory used by the local backend.
 	StoragePath string // TINYDM_STORAGE_PATH (default: data/content)
+
+	// S3-compatible storage (AWS S3, MinIO, Backblaze B2, etc.)
+	// Required when StorageBackend == "s3".
+	S3Bucket   string // TINYDM_S3_BUCKET
+	S3Endpoint string // TINYDM_S3_ENDPOINT — optional; set to e.g. "http://localhost:9000" for MinIO
+	S3Region   string // TINYDM_S3_REGION (default: "us-east-1")
+	S3KeyID    string // TINYDM_S3_KEY_ID
+	S3Secret   string // TINYDM_S3_SECRET
 
 	// Authentication
 	JWTSecret        string // TINYDM_JWT_SECRET — must be set; no default
@@ -47,7 +58,13 @@ func Load() (*Config, error) {
 		DBDriver:           getEnv("TINYDM_DB_DRIVER", "sqlite"),
 		DBPath:             getEnv("TINYDM_DB_PATH", "tinydm.db"),
 		DBDSN:              getEnv("TINYDM_DB_DSN", ""),
+		StorageBackend:     getEnv("TINYDM_STORAGE_BACKEND", "local"),
 		StoragePath:        getEnv("TINYDM_STORAGE_PATH", "data/content"),
+		S3Bucket:           getEnv("TINYDM_S3_BUCKET", ""),
+		S3Endpoint:         getEnv("TINYDM_S3_ENDPOINT", ""),
+		S3Region:           getEnv("TINYDM_S3_REGION", "us-east-1"),
+		S3KeyID:            getEnv("TINYDM_S3_KEY_ID", ""),
+		S3Secret:           getEnv("TINYDM_S3_SECRET", ""),
 		JWTSecret:        getEnv("TINYDM_JWT_SECRET", ""),
 		JWTExpiryMinutes: getEnvInt("TINYDM_JWT_EXPIRY_MINUTES", 60),
 		SecureCookies:    getEnvBool("TINYDM_SECURE_COOKIES", false),
@@ -67,6 +84,19 @@ func Load() (*Config, error) {
 	}
 	if cfg.DBDriver == "postgres" && cfg.DBDSN == "" {
 		return nil, fmt.Errorf("TINYDM_DB_DSN must be set when TINYDM_DB_DRIVER=postgres")
+	}
+
+	validBackends := map[string]bool{"local": true, "s3": true, "azure": true, "gcs": true}
+	if !validBackends[cfg.StorageBackend] {
+		return nil, fmt.Errorf("TINYDM_STORAGE_BACKEND must be one of local, s3, azure, gcs; got %q", cfg.StorageBackend)
+	}
+	if cfg.StorageBackend == "s3" {
+		if cfg.S3Bucket == "" {
+			return nil, fmt.Errorf("TINYDM_S3_BUCKET must be set when TINYDM_STORAGE_BACKEND=s3")
+		}
+		if cfg.S3KeyID == "" || cfg.S3Secret == "" {
+			return nil, fmt.Errorf("TINYDM_S3_KEY_ID and TINYDM_S3_SECRET must be set when TINYDM_STORAGE_BACKEND=s3")
+		}
 	}
 
 	return cfg, nil

@@ -73,12 +73,20 @@ func main() {
 	slog.Info("database ready", "driver", cfg.DBDriver, "dsn", cfg.DSN())
 
 	// ── Storage ───────────────────────────────────────────────────────────────
-	fileStore, err := storage.NewLocal(cfg.StoragePath)
+	fileStore, err := storage.New(storage.BackendConfig{
+		Backend:    cfg.StorageBackend,
+		Path:       cfg.StoragePath,
+		S3Bucket:   cfg.S3Bucket,
+		S3Region:   cfg.S3Region,
+		S3Endpoint: cfg.S3Endpoint,
+		S3KeyID:    cfg.S3KeyID,
+		S3Secret:   cfg.S3Secret,
+	})
 	if err != nil {
-		slog.Error("failed to initialise storage", "error", err, "path", cfg.StoragePath)
+		slog.Error("failed to initialise storage", "error", err, "backend", cfg.StorageBackend)
 		os.Exit(1)
 	}
-	slog.Info("storage ready", "path", cfg.StoragePath)
+	slog.Info("storage ready", "backend", cfg.StorageBackend)
 
 	// ── Stores ────────────────────────────────────────────────────────────────
 	authStore := auth.NewStore(database)
