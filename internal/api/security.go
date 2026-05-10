@@ -60,8 +60,10 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		// Restrict powerful browser features.
 		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		// Content Security Policy — tight for an admin tool that has no CDN
-		// dependencies. Adjust if you serve assets from external hosts.
+		// Content-Security-Policy — tight default for the admin UI and REST API.
+		// HTMX is loaded from unpkg.com. The /api/docs handler overrides this
+		// header with a looser policy that also allows cdn.jsdelivr.net, which
+		// is required by Swagger UI.
 		h.Set("Content-Security-Policy",
 			"default-src 'self'; "+
 				"script-src 'self' 'unsafe-inline' unpkg.com; "+ // HTMX via unpkg

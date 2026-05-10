@@ -43,8 +43,17 @@ const swaggerUI = `<!DOCTYPE html>
 </html>`
 
 // serveSwaggerUI serves the Swagger UI HTML page.
+// The global SecurityHeaders middleware sets a tight CSP that blocks external
+// CDN resources; we override it here to allow the jsDelivr assets that
+// Swagger UI requires. All other routes keep the strict policy.
 func serveSwaggerUI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Content-Security-Policy",
+		"default-src 'self'; "+
+			"script-src 'self' 'unsafe-inline' cdn.jsdelivr.net; "+
+			"style-src 'self' 'unsafe-inline' cdn.jsdelivr.net; "+
+			"img-src 'self' data:; "+
+			"frame-ancestors 'none'")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(swaggerUI))
 }
