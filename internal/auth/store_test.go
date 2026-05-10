@@ -267,3 +267,67 @@ func TestChangePassword_UnknownUserReturnsError(t *testing.T) {
 		t.Error("expected error for unknown user, got nil")
 	}
 }
+
+func TestCountUsersByTenant_ReturnsCorrectCount(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedTenant(t, s, "tenant-1")
+	seedTenant(t, s, "tenant-2")
+
+	hash, _ := HashPassword("pass")
+	_, err := s.CreateUser(ctx, "tenant-1", "alice", "alice@test.local", "Alice", "A", hash, UserTypeUser)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	_, err = s.CreateUser(ctx, "tenant-1", "bob", "bob@test.local", "Bob", "B", hash, UserTypeUser)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	_, err = s.CreateUser(ctx, "tenant-2", "carol", "carol@test.local", "Carol", "C", hash, UserTypeUser)
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	n, err := s.CountUsersByTenant(ctx, "tenant-1")
+	if err != nil {
+		t.Fatalf("CountUsersByTenant: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("got %d, want 2", n)
+	}
+}
+
+func TestCountAPIKeysByTenant_ReturnsCorrectCount(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	seedTenant(t, s, "tenant-1")
+	seedTenant(t, s, "tenant-2")
+
+	hash, _ := HashPassword("pass")
+	u1, _ := s.CreateUser(ctx, "tenant-1", "alice", "alice@t.local", "Alice", "A", hash, UserTypeAdmin)
+	u2, _ := s.CreateUser(ctx, "tenant-2", "bob", "bob@t.local", "Bob", "B", hash, UserTypeAdmin)
+
+	_, keyHash1, keyPrefix1, _ := GenerateAPIKey()
+	_, err := s.CreateAPIKey(ctx, u1.TenantID, &u1.ID, "key1", keyHash1, keyPrefix1, nil)
+	if err != nil {
+		t.Fatalf("CreateAPIKey: %v", err)
+	}
+	_, keyHash2, keyPrefix2, _ := GenerateAPIKey()
+	_, err = s.CreateAPIKey(ctx, u1.TenantID, &u1.ID, "key2", keyHash2, keyPrefix2, nil)
+	if err != nil {
+		t.Fatalf("CreateAPIKey: %v", err)
+	}
+	_, keyHash3, keyPrefix3, _ := GenerateAPIKey()
+	_, err = s.CreateAPIKey(ctx, u2.TenantID, &u2.ID, "other", keyHash3, keyPrefix3, nil)
+	if err != nil {
+		t.Fatalf("CreateAPIKey: %v", err)
+	}
+
+	n, err := s.CountAPIKeysByTenant(ctx, "tenant-1")
+	if err != nil {
+		t.Fatalf("CountAPIKeysByTenant: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("got %d, want 2", n)
+	}
+}

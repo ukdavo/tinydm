@@ -126,6 +126,22 @@ func (s *Store) CountUsers(ctx context.Context) (int, error) {
 	return n, err
 }
 
+// CountUsersByTenant returns the number of non-deleted users in the given tenant.
+func (s *Store) CountUsersByTenant(ctx context.Context, tenantID string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM users WHERE tenant_id = ? AND deleted_at IS NULL`, tenantID).Scan(&n)
+	return n, err
+}
+
+// CountAPIKeysByTenant returns the number of non-revoked API keys in the given tenant.
+func (s *Store) CountAPIKeysByTenant(ctx context.Context, tenantID string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM api_keys WHERE tenant_id = ? AND revoked_at IS NULL`, tenantID).Scan(&n)
+	return n, err
+}
+
 // ListUsers returns non-deleted users for the given tenant, ordered by username.
 // limit/offset control pagination; pass 0 for limit to use the default (50).
 // Returns the matched slice, the total count (unpaged), and any error.
