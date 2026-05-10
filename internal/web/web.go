@@ -157,6 +157,8 @@ func RegisterRoutes(r chi.Router, h *Handler) {
 		r.Post("/admin/tenants/{tenantID}/users", h.createTenantUser)
 		r.Post("/admin/users/{userID}/activate", h.activateUser)
 		r.Post("/admin/users/{userID}/deactivate", h.deactivateUser)
+		r.Get("/admin/users/{userID}/row", h.userRow)
+		r.Get("/admin/users/{userID}/password-form", h.passwordForm)
 		r.Post("/admin/users/{userID}/password", h.changeUserPassword)
 		r.Delete("/admin/users/{userID}", h.deleteUser)
 

@@ -102,7 +102,9 @@
   <td class="text-right">
     <div class="flex gap-8 items-center" style="justify-content:flex-end;">
       <button class="btn btn-ghost btn-sm"
-        onclick="document.getElementById('pwd-modal-{{.ID}}').showModal()">
+        hx-get="/admin/users/{{.ID}}/password-form"
+        hx-target="#user-{{.ID}}"
+        hx-swap="outerHTML">
         Change Password
       </button>
       {{if eq (string .UserType) "user"}}
@@ -130,28 +132,34 @@
         </button>
       {{end}}
     </div>
-
-    <dialog id="pwd-modal-{{.ID}}" class="pwd-dialog">
-      <form method="dialog">
-        <h3>Change Password — {{.Username}}</h3>
-        <div class="form-group">
-          <input type="password" name="password" id="pwd-{{.ID}}"
-                 placeholder="New password (8+ chars)" required minlength="8" autocomplete="new-password">
-        </div>
-        <div id="pwd-err-{{.ID}}" class="error-text"></div>
-        <div class="flex gap-8" style="justify-content:flex-end;">
-          <button class="btn btn-ghost" value="cancel">Cancel</button>
-          <button type="button" class="btn btn-primary"
-            hx-post="/admin/users/{{.ID}}/password"
-            hx-include="#pwd-{{.ID}}"
-            hx-target="#pwd-err-{{.ID}}"
-            hx-swap="innerHTML"
-            hx-on::after-request="if(event.detail.successful){document.getElementById('pwd-modal-{{.ID}}').close();document.getElementById('pwd-{{.ID}}').value='';}">
-            Save
-          </button>
-        </div>
-      </form>
-    </dialog>
   </td>
+</tr>
+{{end}}
+
+{{define "user-change-password-row"}}
+<tr id="user-{{.ID}}">
+  <td colspan="5">
+    <div class="edit-row-form">
+      <span class="muted">Change password for <strong>{{.Username}}</strong></span>
+      <div class="form-group">
+        <input type="password" id="pwd-new-{{.ID}}" name="password"
+               placeholder="New password (8+ chars)" minlength="8" autocomplete="new-password">
+      </div>
+      <button class="btn btn-primary btn-sm"
+        hx-post="/admin/users/{{.ID}}/password"
+        hx-include="#pwd-new-{{.ID}}"
+        hx-target="#user-{{.ID}}"
+        hx-swap="outerHTML">
+        Save
+      </button>
+      <button class="btn btn-ghost btn-sm"
+        hx-get="/admin/users/{{.ID}}/row"
+        hx-target="#user-{{.ID}}"
+        hx-swap="outerHTML">
+        Cancel
+      </button>
+    </div>
+  </td>
+  <td></td>
 </tr>
 {{end}}

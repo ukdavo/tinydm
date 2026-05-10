@@ -615,11 +615,39 @@ func (h *Handler) createTenantUser(w http.ResponseWriter, r *http.Request) {
 	h.renderPartial(w, "users", "user-row", user)
 }
 
+// userRow handles GET /admin/users/{userID}/row
+//
+// Returns the normal user-row partial. Used by the Cancel button in the
+// inline password-change form to restore the row to its display state.
+func (h *Handler) userRow(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "userID")
+	user, err := h.auth.GetUserByID(r.Context(), id)
+	if err != nil || user == nil {
+		http.NotFound(w, r)
+		return
+	}
+	h.renderPartial(w, "users", "user-row", user)
+}
+
+// passwordForm handles GET /admin/users/{userID}/password-form
+//
+// Returns the inline password-change row partial so HTMX can swap the normal
+// user row with an editable form.
+func (h *Handler) passwordForm(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "userID")
+	user, err := h.auth.GetUserByID(r.Context(), id)
+	if err != nil || user == nil {
+		http.NotFound(w, r)
+		return
+	}
+	h.renderPartial(w, "users", "user-change-password-row", user)
+}
+
 // changeUserPassword handles POST /admin/users/{userID}/password
 //
 // Reads the new password from the form body, validates a minimum length of 8,
-// hashes it, and updates the user. On success returns 200 with empty body so
-// HTMX can close the modal client-side.
+// hashes it, updates the user, then returns the refreshed user-row partial so
+// HTMX can swap the form row back to the normal display row.
 func (h *Handler) changeUserPassword(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "userID")
 	password := r.FormValue("password")
@@ -636,7 +664,12 @@ func (h *Handler) changeUserPassword(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	user, err := h.auth.GetUserByID(r.Context(), id)
+	if err != nil || user == nil {
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+	h.renderPartial(w, "users", "user-row", user)
 }
 
 func (h *Handler) activateUser(w http.ResponseWriter, r *http.Request) {
