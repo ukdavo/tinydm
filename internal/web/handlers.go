@@ -459,11 +459,17 @@ func (h *Handler) deleteBucket(w http.ResponseWriter, r *http.Request) {
 
 // ── Documents ─────────────────────────────────────────────────────────────────
 
+type bucketSummaryStats struct {
+	Documents int
+	TotalSize string
+}
+
 type documentsData struct {
 	basePage
 	Tenant    *repo.Tenant
 	Project   *repo.Project
 	Bucket    *repo.Bucket
+	Stats     bucketSummaryStats
 	Documents []*repo.Document
 	Pager     WebPagination
 }
@@ -491,11 +497,19 @@ func (h *Handler) documents(w http.ResponseWriter, r *http.Request) {
 
 	page, limit := parsePage(r)
 	docs, total, _ := h.repo.ListDocuments(r.Context(), bucketID, repo.PageOpts{Limit: limit, Offset: pageOffset(page, limit)})
+
+	docCount, _ := h.repo.CountDocumentsInBucket(r.Context(), bucketID)
+	sizeBytes, _ := h.repo.SumDocumentSizeInBucket(r.Context(), bucketID)
+
 	h.render(w, "documents", documentsData{
-		basePage:  h.base(r, "documents"),
-		Tenant:    tenant,
-		Project:   project,
-		Bucket:    bucket,
+		basePage: h.base(r, "documents"),
+		Tenant:   tenant,
+		Project:  project,
+		Bucket:   bucket,
+		Stats: bucketSummaryStats{
+			Documents: docCount,
+			TotalSize: formatSize(sizeBytes),
+		},
 		Documents: docs,
 		Pager:     newWebPagination(total, page, limit, ""),
 	})
@@ -1291,5 +1305,24 @@ func (h *Handler) auditEvents(w http.ResponseWriter, r *http.Request) {
 	// OOB swap: update the pagination bar without a full page reload.
 	if err := t.ExecuteTemplate(w, "audit-pager-oob", pager); err != nil {
 		slog.Error("audit-pager-oob render error", "error", err)
+	}
+}
+
+// formatSize converts bytes to a human-readable string (e.g. "1.4 GB", "840 KB").
+func formatSize(bytes int64) string {
+	const (
+		kb = 1024
+		mb = 1024 * kb
+		gb = 1024 * mb
+	)
+	switch {
+	case bytes >= gb:
+		return fmt.Sprintf("%.1f GB", float64(bytes)/float64(gb))
+	case bytes >= mb:
+		return fmt.Sprintf("%.1f MB", float64(bytes)/float64(mb))
+	case bytes >= kb:
+		return fmt.Sprintf("%.1f KB", float64(bytes)/float64(kb))
+	default:
+		return fmt.Sprintf("%d B", bytes)
 	}
 }

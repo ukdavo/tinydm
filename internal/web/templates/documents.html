@@ -14,6 +14,17 @@
   <div><h1>Documents</h1><p>Bucket: <strong>{{.Bucket.Name}}</strong></p></div>
 </div>
 
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="label">Documents</div>
+    <div class="value">{{.Stats.Documents}}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">Total Size</div>
+    <div class="value">{{.Stats.TotalSize}}</div>
+  </div>
+</div>
+
 <!-- Upload form -->
 <div class="card" style="margin-bottom:16px;">
   <div class="card-header"><h2>Upload Document</h2></div>
