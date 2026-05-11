@@ -91,108 +91,113 @@ func (h *Handler) parseTemplates() {
 	)
 }
 
-// RegisterRoutes mounts all admin UI routes onto the router.
+// RegisterRoutes mounts all app UI routes onto the router.
 func RegisterRoutes(r chi.Router, h *Handler) {
 	// Serve embedded static assets.
 	staticSub, _ := fs.Sub(staticFS, "static")
-	r.Handle("/admin/static/*", http.StripPrefix("/admin/static/", http.FileServer(http.FS(staticSub))))
+	r.Handle("/app/static/*", http.StripPrefix("/app/static/", http.FileServer(http.FS(staticSub))))
 
 	// Login / logout (no session required).
-	r.Get("/admin/login", h.loginPage)
-	r.Post("/admin/login", h.loginSubmit)
-	r.Get("/admin/logout", h.logout)
+	r.Get("/app/login", h.loginPage)
+	r.Post("/app/login", h.loginSubmit)
+	r.Get("/app/logout", h.logout)
 
-	// All other admin routes require a valid session.
+	// All other app routes require a valid session.
 	r.Group(func(r chi.Router) {
 		r.Use(h.requireSession)
 
-		// Dashboard
-		r.Get("/admin/", h.dashboard)
-		r.Get("/admin", h.dashboard)
+		// Dashboard — all logged-in users.
+		r.Get("/app/", h.dashboard)
+		r.Get("/app", h.dashboard)
 
-		// Projects
-		r.Get("/admin/projects", h.projects)
-		r.Post("/admin/projects", h.createProject)
-		r.Delete("/admin/projects/{projectID}", h.deleteProject)
+		// Projects list — all logged-in users.
+		r.Get("/app/projects", h.projects)
 
-		// Buckets
-		r.Get("/admin/projects/{projectID}/buckets", h.buckets)
-		r.Post("/admin/projects/{projectID}/buckets", h.createBucket)
-		r.Get("/admin/projects/{projectID}/buckets/{bucketID}/edit", h.editBucketForm)
-		r.Get("/admin/projects/{projectID}/buckets/{bucketID}/row", h.bucketRowPartial)
-		r.Put("/admin/projects/{projectID}/buckets/{bucketID}", h.updateBucket)
-		r.Delete("/admin/projects/{projectID}/buckets/{bucketID}", h.deleteBucket)
+		// Buckets list — all logged-in users.
+		r.Get("/app/projects/{projectID}/buckets", h.buckets)
 
-		// Documents list
-		r.Get("/admin/projects/{projectID}/buckets/{bucketID}/documents", h.documents)
-		r.Post("/admin/projects/{projectID}/buckets/{bucketID}/documents", h.uploadDocument)
-		r.Get("/admin/projects/{projectID}/buckets/{bucketID}/documents/rows", h.documentRows)
+		// Documents — all logged-in users (full CRUD).
+		r.Get("/app/projects/{projectID}/buckets/{bucketID}/documents", h.documents)
+		r.Post("/app/projects/{projectID}/buckets/{bucketID}/documents", h.uploadDocument)
+		r.Get("/app/projects/{projectID}/buckets/{bucketID}/documents/rows", h.documentRows)
 
-		// Document detail / edit
-		r.Get("/admin/documents/{documentID}", h.documentDetail)
-		r.Put("/admin/documents/{documentID}", h.updateDocument)
-		r.Get("/admin/documents/{documentID}/edit", h.editDocumentForm)
-		r.Get("/admin/documents/{documentID}/row", h.documentRowPartial)
-		r.Delete("/admin/documents/{documentID}", h.deleteDocument)
-		r.Get("/admin/documents/{documentID}/download", h.downloadDocument)
+		// Document detail / edit — all logged-in users.
+		r.Get("/app/documents/{documentID}", h.documentDetail)
+		r.Put("/app/documents/{documentID}", h.updateDocument)
+		r.Get("/app/documents/{documentID}/edit", h.editDocumentForm)
+		r.Get("/app/documents/{documentID}/row", h.documentRowPartial)
+		r.Delete("/app/documents/{documentID}", h.deleteDocument)
+		r.Get("/app/documents/{documentID}/download", h.downloadDocument)
 
-		// Document tags
-		r.Post("/admin/documents/{documentID}/tags", h.addDocumentTag)
-		r.Delete("/admin/documents/{documentID}/tags/{tag}", h.removeDocumentTag)
+		// Document tags — all logged-in users.
+		r.Post("/app/documents/{documentID}/tags", h.addDocumentTag)
+		r.Delete("/app/documents/{documentID}/tags/{tag}", h.removeDocumentTag)
 
-		// Document properties
-		r.Post("/admin/documents/{documentID}/properties", h.setDocumentPropertyWeb)
-		r.Delete("/admin/documents/{documentID}/properties/{key}", h.deleteDocumentPropertyWeb)
+		// Document properties — all logged-in users.
+		r.Post("/app/documents/{documentID}/properties", h.setDocumentPropertyWeb)
+		r.Delete("/app/documents/{documentID}/properties/{key}", h.deleteDocumentPropertyWeb)
 
-		// Document version restore
-		r.Post("/admin/documents/{documentID}/versions/{versionID}/restore", h.restoreDocumentVersionWeb)
+		// Document version restore — all logged-in users.
+		r.Post("/app/documents/{documentID}/versions/{versionID}/restore", h.restoreDocumentVersionWeb)
 
-		// Users
-		r.Get("/admin/users", h.users)
-		r.Post("/admin/users", h.createUser)
-		r.Post("/admin/users/{userID}/activate", h.activateUser)
-		r.Post("/admin/users/{userID}/deactivate", h.deactivateUser)
-		r.Get("/admin/users/{userID}/row", h.userRow)
-		r.Get("/admin/users/{userID}/password-form", h.passwordForm)
-		r.Post("/admin/users/{userID}/password", h.changeUserPassword)
-		r.Delete("/admin/users/{userID}", h.deleteUser)
+		// ── Admin-only routes ──────────────────────────────────────────────────
+		r.Group(func(r chi.Router) {
+			r.Use(h.requireAdmin)
 
-		// API keys
-		r.Get("/admin/apikeys", h.apiKeys)
-		r.Post("/admin/apikeys", h.createAPIKey)
-		r.Post("/admin/apikeys/{keyID}/revoke", h.revokeAPIKey)
+			// Projects — create / delete.
+			r.Post("/app/projects", h.createProject)
+			r.Delete("/app/projects/{projectID}", h.deleteProject)
 
-		// Rights management — users
-		r.Get("/admin/users/{userID}/rights", h.userRightsPanel)
-		r.Post("/admin/users/{userID}/rights", h.addUserRight)
-		r.Delete("/admin/users/{userID}/rights", h.removeUserRight)
+			// Buckets — create / edit / delete.
+			r.Post("/app/projects/{projectID}/buckets", h.createBucket)
+			r.Get("/app/projects/{projectID}/buckets/{bucketID}/edit", h.editBucketForm)
+			r.Get("/app/projects/{projectID}/buckets/{bucketID}/row", h.bucketRowPartial)
+			r.Put("/app/projects/{projectID}/buckets/{bucketID}", h.updateBucket)
+			r.Delete("/app/projects/{projectID}/buckets/{bucketID}", h.deleteBucket)
 
-		// Rights management — API keys
-		r.Get("/admin/apikeys/{keyID}/rights", h.apiKeyRightsPanel)
-		r.Post("/admin/apikeys/{keyID}/rights", h.addAPIKeyRight)
-		r.Delete("/admin/apikeys/{keyID}/rights", h.removeAPIKeyRight)
+			// Users.
+			r.Get("/app/users", h.users)
+			r.Post("/app/users", h.createUser)
+			r.Post("/app/users/{userID}/activate", h.activateUser)
+			r.Post("/app/users/{userID}/deactivate", h.deactivateUser)
+			r.Get("/app/users/{userID}/row", h.userRow)
+			r.Get("/app/users/{userID}/password-form", h.passwordForm)
+			r.Post("/app/users/{userID}/password", h.changeUserPassword)
+			r.Delete("/app/users/{userID}", h.deleteUser)
 
-		// Per-resource rights
-		r.Get("/admin/projects/{projectID}/rights", h.projectRightsPanel)
-		r.Post("/admin/projects/{projectID}/rights", h.addProjectRight)
-		r.Delete("/admin/projects/{projectID}/rights", h.removeProjectRight)
+			// API keys.
+			r.Get("/app/apikeys", h.apiKeys)
+			r.Post("/app/apikeys", h.createAPIKey)
+			r.Post("/app/apikeys/{keyID}/revoke", h.revokeAPIKey)
 
-		r.Get("/admin/projects/{projectID}/buckets/{bucketID}/rights", h.bucketRightsPanel)
-		r.Post("/admin/projects/{projectID}/buckets/{bucketID}/rights", h.addBucketRight)
-		r.Delete("/admin/projects/{projectID}/buckets/{bucketID}/rights", h.removeBucketRight)
+			// Rights management — by principal.
+			r.Get("/app/users/{userID}/rights", h.userRightsPanel)
+			r.Post("/app/users/{userID}/rights", h.addUserRight)
+			r.Delete("/app/users/{userID}/rights", h.removeUserRight)
+			r.Get("/app/apikeys/{keyID}/rights", h.apiKeyRightsPanel)
+			r.Post("/app/apikeys/{keyID}/rights", h.addAPIKeyRight)
+			r.Delete("/app/apikeys/{keyID}/rights", h.removeAPIKeyRight)
 
-		r.Get("/admin/documents/{documentID}/rights", h.documentRightsPanel)
-		r.Post("/admin/documents/{documentID}/rights", h.addDocumentRight)
-		r.Delete("/admin/documents/{documentID}/rights", h.removeDocumentRight)
+			// Rights management — by resource.
+			r.Get("/app/projects/{projectID}/rights", h.projectRightsPanel)
+			r.Post("/app/projects/{projectID}/rights", h.addProjectRight)
+			r.Delete("/app/projects/{projectID}/rights", h.removeProjectRight)
+			r.Get("/app/projects/{projectID}/buckets/{bucketID}/rights", h.bucketRightsPanel)
+			r.Post("/app/projects/{projectID}/buckets/{bucketID}/rights", h.addBucketRight)
+			r.Delete("/app/projects/{projectID}/buckets/{bucketID}/rights", h.removeBucketRight)
+			r.Get("/app/documents/{documentID}/rights", h.documentRightsPanel)
+			r.Post("/app/documents/{documentID}/rights", h.addDocumentRight)
+			r.Delete("/app/documents/{documentID}/rights", h.removeDocumentRight)
 
-		// Audit log
-		r.Get("/admin/audit", h.auditLog)
-		r.Get("/admin/audit/events", h.auditEvents)
+			// Audit log.
+			r.Get("/app/audit", h.auditLog)
+			r.Get("/app/audit/events", h.auditEvents)
+		})
 	})
 
-	// Redirect / → /admin/
+	// Redirect / → /app/
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/admin/", http.StatusFound)
+		http.Redirect(w, r, "/app/", http.StatusFound)
 	})
 }
 
@@ -202,19 +207,19 @@ func (h *Handler) requireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(sessionCookie)
 		if err != nil || cookie.Value == "" {
-			http.Redirect(w, r, "/admin/login", http.StatusFound)
+			http.Redirect(w, r, "/app/login", http.StatusFound)
 			return
 		}
 		claims, err := auth.ParseJWT(h.cfg.JWTSecret, cookie.Value)
 		if err != nil {
 			http.SetCookie(w, clearCookie())
-			http.Redirect(w, r, "/admin/login", http.StatusFound)
+			http.Redirect(w, r, "/app/login", http.StatusFound)
 			return
 		}
 		user, err := h.auth.GetUserByID(r.Context(), claims.Subject)
 		if err != nil || user == nil || !user.IsActive {
 			http.SetCookie(w, clearCookie())
-			http.Redirect(w, r, "/admin/login", http.StatusFound)
+			http.Redirect(w, r, "/app/login", http.StatusFound)
 			return
 		}
 		ctx := auth.WithPrincipal(r.Context(), auth.Principal{
@@ -223,6 +228,17 @@ func (h *Handler) requireSession(next http.Handler) http.Handler {
 			UserType: user.UserType,
 		})
 		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func (h *Handler) requireAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, _ := auth.PrincipalFromContext(r.Context())
+		if p.UserType != auth.UserTypeAdmin {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
