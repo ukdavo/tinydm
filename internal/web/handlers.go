@@ -1337,12 +1337,6 @@ func formatSize(bytes int64) string {
 
 // ── Rights page data ──────────────────────────────────────────────────────────
 
-// WebRight wraps auth.Right with a display name for the resource.
-type WebRight struct {
-	auth.Right
-	ResourceName string
-}
-
 type userRightsPage struct {
 	basePage
 	Tenant *repo.Tenant
@@ -1391,6 +1385,12 @@ func (h *Handler) addUserRight(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenantID")
 	userID := chi.URLParam(r, "userID")
 
+	user, err := h.auth.GetUserByID(r.Context(), userID)
+	if err != nil || user == nil || user.TenantID != tenantID {
+		http.NotFound(w, r)
+		return
+	}
+
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
@@ -1419,7 +1419,6 @@ func (h *Handler) addUserRight(w http.ResponseWriter, r *http.Request) {
 	// Re-render the panel partial.
 	rights, _ := h.auth.ListRights(r.Context(), tenantID, "user", userID)
 	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
-	user, _ := h.auth.GetUserByID(r.Context(), userID)
 	data := userRightsPage{basePage: h.base(r, "users"), Tenant: tenant, User: user, Rights: rights}
 	h.renderPartial(w, "users", "user-rights-panel", data)
 }
@@ -1427,6 +1426,12 @@ func (h *Handler) addUserRight(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) removeUserRight(w http.ResponseWriter, r *http.Request) {
 	tenantID := chi.URLParam(r, "tenantID")
 	userID := chi.URLParam(r, "userID")
+
+	user, err := h.auth.GetUserByID(r.Context(), userID)
+	if err != nil || user == nil || user.TenantID != tenantID {
+		http.NotFound(w, r)
+		return
+	}
 
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form", http.StatusBadRequest)
@@ -1439,7 +1444,6 @@ func (h *Handler) removeUserRight(w http.ResponseWriter, r *http.Request) {
 
 	rights, _ := h.auth.ListRights(r.Context(), tenantID, "user", userID)
 	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
-	user, _ := h.auth.GetUserByID(r.Context(), userID)
 	data := userRightsPage{basePage: h.base(r, "users"), Tenant: tenant, User: user, Rights: rights}
 	h.renderPartial(w, "users", "user-rights-panel", data)
 }
@@ -1498,7 +1502,10 @@ func (h *Handler) addAPIKeyRight(w http.ResponseWriter, r *http.Request) {
 	if params.ResourceID == "" {
 		params.ResourceID = "*"
 	}
-	_ = h.auth.UpsertRight(r.Context(), params)
+	if err := h.auth.UpsertRight(r.Context(), params); err != nil {
+		http.Error(w, "failed to add right", http.StatusInternalServerError)
+		return
+	}
 
 	rights, _ := h.auth.GetAPIKeyRights(r.Context(), tenantID, keyID)
 	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
@@ -1509,6 +1516,10 @@ func (h *Handler) addAPIKeyRight(w http.ResponseWriter, r *http.Request) {
 			key = k
 			break
 		}
+	}
+	if key == nil {
+		http.NotFound(w, r)
+		return
 	}
 	data := apiKeyRightsPage{basePage: h.base(r, "apikeys"), Tenant: tenant, Key: key, Rights: rights}
 	h.renderPartial(w, "apikeys", "apikey-rights-panel", data)
@@ -1534,6 +1545,10 @@ func (h *Handler) removeAPIKeyRight(w http.ResponseWriter, r *http.Request) {
 			key = k
 			break
 		}
+	}
+	if key == nil {
+		http.NotFound(w, r)
+		return
 	}
 	data := apiKeyRightsPage{basePage: h.base(r, "apikeys"), Tenant: tenant, Key: key, Rights: rights}
 	h.renderPartial(w, "apikeys", "apikey-rights-panel", data)

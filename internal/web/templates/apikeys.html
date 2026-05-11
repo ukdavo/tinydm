@@ -120,7 +120,7 @@
           <td class="text-right">
             <button class="btn btn-danger btn-sm"
               hx-delete="/admin/tenants/{{$.Tenant.ID}}/apikeys/{{$.Key.ID}}/rights"
-              hx-vals='{"resource_type":"{{.ResourceType}}","resource_id":"{{.ResourceID}}"}'
+              hx-vals='{"resource_type":{{.ResourceType | js}},"resource_id":{{.ResourceID | js}}}'
               hx-target="#apikey-rights-panel-{{$.Key.ID}}"
               hx-swap="outerHTML">
               Remove
