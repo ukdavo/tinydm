@@ -108,7 +108,7 @@ func createNonAdminToken(t *testing.T, authStore *auth.Store) string {
 func TestAuditLog_Renders(t *testing.T) {
 	srv, _, _, _, token := newWebServer(t)
 
-	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/audit", token, nil)
+	req := sessionReq(t, http.MethodGet, srv.URL+"/app/audit", token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET audit: %v", err)
@@ -124,7 +124,7 @@ func TestAuditLog_Renders(t *testing.T) {
 func TestAuditLog_GlobalRouteGone(t *testing.T) {
 	srv, _, _, _, token := newWebServer(t)
 
-	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/tenants", token, nil)
+	req := sessionReq(t, http.MethodGet, srv.URL+"/app/tenants", token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET /admin/tenants: %v", err)
@@ -141,7 +141,7 @@ func TestAuditLog_GlobalRouteGone(t *testing.T) {
 func TestPasswordForm_ReturnsInputFragment(t *testing.T) {
 	srv, _, _, user, token := newWebServer(t)
 
-	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/users/"+user.ID+"/password-form", token, nil)
+	req := sessionReq(t, http.MethodGet, srv.URL+"/app/users/"+user.ID+"/password-form", token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET password-form: %v", err)
@@ -172,7 +172,7 @@ func TestPasswordChange_Web_ReturnsUserRow(t *testing.T) {
 	srv, _, _, user, token := newWebServer(t)
 
 	form := url.Values{"password": {"newpassword"}}
-	req := sessionReq(t, http.MethodPost, srv.URL+"/admin/users/"+user.ID+"/password", token,
+	req := sessionReq(t, http.MethodPost, srv.URL+"/app/users/"+user.ID+"/password", token,
 		strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
@@ -204,7 +204,7 @@ func TestPasswordChange_Web_ReturnsUserRow(t *testing.T) {
 func TestAPIKeysPage_Renders(t *testing.T) {
 	srv, _, _, _, token := newWebServer(t)
 
-	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/apikeys", token, nil)
+	req := sessionReq(t, http.MethodGet, srv.URL+"/app/apikeys", token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET apikeys: %v", err)
@@ -222,7 +222,7 @@ func TestAPIKeysPage_Renders(t *testing.T) {
 func TestUsersPage_Renders(t *testing.T) {
 	srv, _, _, _, token := newWebServer(t)
 
-	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/users", token, nil)
+	req := sessionReq(t, http.MethodGet, srv.URL+"/app/users", token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET users: %v", err)
@@ -239,7 +239,7 @@ func TestUsersPage_Renders(t *testing.T) {
 func TestDashboardPage_Renders(t *testing.T) {
 	srv, _, _, _, token := newWebServer(t)
 
-	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/", token, nil)
+	req := sessionReq(t, http.MethodGet, srv.URL+"/app/", token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET /admin/: %v", err)
@@ -256,7 +256,7 @@ func TestDashboardPage_Renders(t *testing.T) {
 func TestProjectsPage_Renders(t *testing.T) {
 	srv, _, repoStore, _, token := newWebServer(t)
 
-	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/projects", token, nil)
+	req := sessionReq(t, http.MethodGet, srv.URL+"/app/projects", token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET projects: %v", err)
@@ -280,7 +280,7 @@ func TestBucketsPage_Renders(t *testing.T) {
 	}
 
 	req := sessionReq(t, http.MethodGet,
-		srv.URL+"/admin/projects/"+project.ID+"/buckets",
+		srv.URL+"/app/projects/"+project.ID+"/buckets",
 		token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -308,7 +308,7 @@ func TestDocumentsPage_Renders(t *testing.T) {
 	}
 
 	req := sessionReq(t, http.MethodGet,
-		srv.URL+"/admin/projects/"+project.ID+"/buckets/"+bucket.ID+"/documents",
+		srv.URL+"/app/projects/"+project.ID+"/buckets/"+bucket.ID+"/documents",
 		token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -339,7 +339,7 @@ func TestDocumentDetailPage_Renders(t *testing.T) {
 		t.Fatalf("CreateDocument: %v", err)
 	}
 
-	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/documents/"+doc.ID, token, nil)
+	req := sessionReq(t, http.MethodGet, srv.URL+"/app/documents/"+doc.ID, token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET document detail: %v", err)
