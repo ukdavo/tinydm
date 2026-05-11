@@ -53,10 +53,13 @@ type Config struct {
 	JWTExpiryMinutes int    // TINYDM_JWT_EXPIRY_MINUTES (default: 60)
 	SecureCookies    bool   // TINYDM_SECURE_COOKIES — set true when serving over HTTPS (default: false)
 
+	// RBAC
+	// PermMode controls how RBAC access is evaluated for regular users system-wide.
+	// Values: "explicit" (deny by default) or "open" (allow by default). Default: "open".
+	PermMode string // TINYDM_PERM_MODE (default: "open")
+
 	// Bootstrap — used only on the very first run when the DB has no users.
 	// Set all three to seed an initial admin; they are ignored thereafter.
-	BootstrapTenantID   string // TINYDM_BOOTSTRAP_TENANT_ID   (default: "default")
-	BootstrapTenantName string // TINYDM_BOOTSTRAP_TENANT_NAME (default: "Default")
 	BootstrapAdminUser  string // TINYDM_BOOTSTRAP_ADMIN_USER  (default: "admin")
 	BootstrapAdminEmail string // TINYDM_BOOTSTRAP_ADMIN_EMAIL (default: "")
 	BootstrapAdminPass  string // TINYDM_BOOTSTRAP_ADMIN_PASS  — required for bootstrap
@@ -88,16 +91,17 @@ func Load() (*Config, error) {
 		JWTSecret:        getEnv("TINYDM_JWT_SECRET", ""),
 		JWTExpiryMinutes: getEnvInt("TINYDM_JWT_EXPIRY_MINUTES", 60),
 		SecureCookies:    getEnvBool("TINYDM_SECURE_COOKIES", false),
-
-		BootstrapTenantID:   getEnv("TINYDM_BOOTSTRAP_TENANT_ID", "default"),
-		BootstrapTenantName: getEnv("TINYDM_BOOTSTRAP_TENANT_NAME", "Default"),
-		BootstrapAdminUser:  getEnv("TINYDM_BOOTSTRAP_ADMIN_USER", "superadmin"),
+		PermMode:         getEnv("TINYDM_PERM_MODE", "open"),
+		BootstrapAdminUser:  getEnv("TINYDM_BOOTSTRAP_ADMIN_USER", "admin"),
 		BootstrapAdminEmail: getEnv("TINYDM_BOOTSTRAP_ADMIN_EMAIL", ""),
 		BootstrapAdminPass:  getEnv("TINYDM_BOOTSTRAP_ADMIN_PASS", ""),
 	}
 
 	if cfg.JWTSecret == "" {
 		return nil, fmt.Errorf("TINYDM_JWT_SECRET must be set")
+	}
+	if cfg.PermMode != "explicit" && cfg.PermMode != "open" {
+		return nil, fmt.Errorf("TINYDM_PERM_MODE must be explicit or open, got %q", cfg.PermMode)
 	}
 	if cfg.DBDriver != "sqlite" && cfg.DBDriver != "postgres" {
 		return nil, fmt.Errorf("TINYDM_DB_DRIVER must be sqlite or postgres, got %q", cfg.DBDriver)
