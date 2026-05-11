@@ -91,7 +91,7 @@ func makeJPEG(width, height uint16) []byte {
 
 func TestExtract_PNG(t *testing.T) {
 	data := makePNG(120, 80)
-	props := Extract("image/png", data)
+	props := Extract("image/png", bytes.NewReader(data))
 
 	if props["image.width"] != "120" {
 		t.Errorf("image.width: got %q, want %q", props["image.width"], "120")
@@ -106,7 +106,7 @@ func TestExtract_PNG(t *testing.T) {
 
 func TestExtract_GIF(t *testing.T) {
 	data := makeGIF()
-	props := Extract("image/gif", data)
+	props := Extract("image/gif", bytes.NewReader(data))
 
 	if props["image.width"] != "1" {
 		t.Errorf("image.width: got %q, want %q", props["image.width"], "1")
@@ -121,7 +121,7 @@ func TestExtract_GIF(t *testing.T) {
 
 func TestExtract_JPEG(t *testing.T) {
 	data := makeJPEG(320, 240)
-	props := Extract("image/jpeg", data)
+	props := Extract("image/jpeg", bytes.NewReader(data))
 
 	if props["image.width"] != "320" {
 		t.Errorf("image.width: got %q, want %q", props["image.width"], "320")
@@ -136,13 +136,13 @@ func TestExtract_JPEG(t *testing.T) {
 
 func TestExtract_Image_TruncatedHeader(t *testing.T) {
 	// Truncated data — should not panic and should return empty props.
-	props := Extract("image/png", []byte{0x89, 0x50, 0x4E, 0x47})
+	props := Extract("image/png", bytes.NewReader([]byte{0x89, 0x50, 0x4E, 0x47}))
 	// No panic is the main assertion; we may or may not get properties.
 	_ = props
 }
 
 func TestExtract_Image_GarbageData(t *testing.T) {
-	props := Extract("image/jpeg", []byte("this is not an image"))
+	props := Extract("image/jpeg", bytes.NewReader([]byte("this is not an image")))
 	if len(props) != 0 {
 		t.Errorf("expected empty props for garbage image data, got %v", props)
 	}
@@ -175,7 +175,7 @@ func TestExtract_PDF_Version(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			props := Extract("application/pdf", tc.header)
+			props := Extract("application/pdf", bytes.NewReader(tc.header))
 			if props["pdf.version"] != tc.want {
 				t.Errorf("pdf.version: got %q, want %q", props["pdf.version"], tc.want)
 			}
@@ -195,7 +195,7 @@ func TestExtract_PDF_InvalidHeader(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			props := Extract("application/pdf", tc.header)
+			props := Extract("application/pdf", bytes.NewReader(tc.header))
 			if _, ok := props["pdf.version"]; ok {
 				t.Error("expected no pdf.version property for invalid PDF header")
 			}
@@ -215,7 +215,7 @@ func TestExtract_Office_OOXML(t *testing.T) {
 		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
 	}
 	for _, ct := range ooxmlTypes {
-		props := Extract(ct, header)
+		props := Extract(ct, bytes.NewReader(header))
 		if props["office.container"] != "ooxml" {
 			t.Errorf("content-type %q: office.container = %q, want %q", ct, props["office.container"], "ooxml")
 		}
@@ -232,7 +232,7 @@ func TestExtract_Office_OLE2(t *testing.T) {
 		"application/vnd.ms-powerpoint",
 	}
 	for _, ct := range legacyTypes {
-		props := Extract(ct, header)
+		props := Extract(ct, bytes.NewReader(header))
 		if props["office.container"] != "ole2" {
 			t.Errorf("content-type %q: office.container = %q, want %q", ct, props["office.container"], "ole2")
 		}
@@ -240,31 +240,34 @@ func TestExtract_Office_OLE2(t *testing.T) {
 }
 
 func TestExtract_Office_TooShort(t *testing.T) {
-	props := Extract("application/msword", []byte{0xD0, 0xCF})
-	if _, ok := props["office.container"]; ok {
-		t.Error("expected no office.container for too-short header")
+	// With the new implementation OLE2 content type always sets office.container=ole2
+	// before attempting further parsing. Truncated data is fine; container is still set.
+	props := Extract("application/msword", bytes.NewReader([]byte{0xD0, 0xCF}))
+	if props["office.container"] != "ole2" {
+		t.Errorf("expected office.container=ole2 for OLE2 content type, got %q", props["office.container"])
 	}
 }
 
 func TestExtract_Office_UnknownMagic(t *testing.T) {
-	props := Extract("application/msword", []byte{0x00, 0x01, 0x02, 0x03})
-	if _, ok := props["office.container"]; ok {
-		t.Errorf("unexpected office.container %q for unknown magic bytes", props["office.container"])
+	// OLE2 content type always sets office.container=ole2 regardless of magic bytes.
+	props := Extract("application/msword", bytes.NewReader([]byte{0x00, 0x01, 0x02, 0x03}))
+	if props["office.container"] != "ole2" {
+		t.Errorf("expected office.container=ole2 for OLE2 content type, got %q", props["office.container"])
 	}
 }
 
 // ─── Unknown / unhandled content types ────────────────────────────────────────
 
 func TestExtract_UnknownContentType(t *testing.T) {
-	props := Extract("text/plain", []byte("hello world"))
+	props := Extract("application/octet-stream", bytes.NewReader([]byte("hello world")))
 	if len(props) != 0 {
-		t.Errorf("expected empty props for text/plain, got %v", props)
+		t.Errorf("expected empty props for application/octet-stream, got %v", props)
 	}
 }
 
 func TestExtract_NeverNil(t *testing.T) {
 	// Extract must always return a non-nil map.
-	props := Extract("application/octet-stream", []byte{})
+	props := Extract("application/octet-stream", bytes.NewReader([]byte{}))
 	if props == nil {
 		t.Error("Extract should never return nil")
 	}
