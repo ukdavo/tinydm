@@ -217,6 +217,19 @@ Introduces a three-tier access control hierarchy: `superadmin` (global, manages 
 
 ---
 
+## Phase 11 — Remove Multi-Tenancy
+
+| # | Task | Status | Notes |
+|---|------|--------|-------|
+| 11.1 | Remove tenants table and tenant_id from all tables | ✅ | Migration 007 (SQLite) / 006 (PG) |
+| 11.2 | Flatten API routes to /api/v1/projects/... | ✅ | Deleted tenants.go; rewrote routes.go |
+| 11.3 | Simplify auth to admin + user roles | ✅ | Removed UserTypeSuperAdmin, IsSuperAdmin |
+| 11.4 | Remove tenant from JWT, Basic auth, login form | ✅ | No TenantID in Claims or Principal |
+| 11.5 | Remove tenant management from admin UI | ✅ | Flat /admin/projects/... routes |
+| 11.6 | Add system-wide TINYDM_PERM_MODE env var | ✅ | Replaces per-tenant perm_mode column |
+
+---
+
 ## Backlog — Future Features
 
 Items from the spec not in scope for the initial release.
