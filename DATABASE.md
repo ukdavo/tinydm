@@ -301,6 +301,23 @@ Custom key/value metadata attached to a document at runtime. Keys starting with 
 
 **Design rationale:** A flat key/value model was chosen over a JSON column because it allows individual properties to be upserted and deleted without deserialising the whole blob. The number of properties per document is small (typically fewer than 20), so a join is cheap.
 
+**Extracted property keys by content type:**
+
+| Namespace | Keys | Content types |
+|---|---|---|
+| `image.*` | `image.width`, `image.height`, `image.format` | all `image/*` |
+| `image.*` (EXIF) | `image.make`, `image.model`, `image.datetime`, `image.orientation`, `image.gps_lat`, `image.gps_lon` | `image/jpeg` |
+| `pdf.*` | `pdf.version`, `pdf.pages`, `pdf.title`, `pdf.author` | `application/pdf` |
+| `office.*` | `office.container` (`ooxml`/`ole2`), `office.title`, `office.author` | all Office MIME types |
+| `office.*` | `office.word_count` | `application/vnd...wordprocessingml.document` |
+| `office.*` | `office.slide_count` | `application/vnd...presentationml.presentation` |
+| `office.*` | `office.sheet_count` | `application/vnd...spreadsheetml.sheet` |
+| `audio.*` | `audio.title`, `audio.artist`, `audio.album`, `audio.year`, `audio.format` | `audio/mpeg`, `audio/mp4`, `audio/x-m4a`, `audio/flac`, `audio/x-flac`, `audio/ogg` |
+| `video.*` | `video.duration_s`, `video.width`, `video.height` | `video/mp4`, `video/quicktime` |
+| `text.*` | `text.lines`, `text.encoding` | `text/plain`, `text/csv`, `text/html`, `text/css`, `text/javascript`, `application/json`, `application/xml`, `text/xml` |
+
+All extraction is best-effort — missing or unparseable fields are omitted rather than written as empty strings.
+
 ---
 
 ### `audit_log`
