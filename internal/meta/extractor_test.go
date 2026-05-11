@@ -243,6 +243,46 @@ func TestExtract_PDF_InvalidHeader(t *testing.T) {
 	}
 }
 
+// ─── PDF deep tests ───────────────────────────────────────────────────────────
+
+func TestExtract_PDF_Pages(t *testing.T) {
+	data, err := os.ReadFile("testdata/test.pdf")
+	if err != nil {
+		t.Skip("testdata/test.pdf not found")
+	}
+	props := Extract("application/pdf", bytes.NewReader(data))
+	if props["pdf.pages"] == "" {
+		t.Error("expected pdf.pages from test PDF")
+	}
+	if props["pdf.version"] == "" {
+		t.Error("expected pdf.version from test PDF")
+	}
+}
+
+func TestExtract_PDF_TitleAuthor(t *testing.T) {
+	data, err := os.ReadFile("testdata/test_with_info.pdf")
+	if err != nil {
+		t.Skip("testdata/test_with_info.pdf not found")
+	}
+	props := Extract("application/pdf", bytes.NewReader(data))
+	if props["pdf.title"] == "" {
+		t.Error("expected pdf.title from PDF with info dict")
+	}
+	if props["pdf.author"] == "" {
+		t.Error("expected pdf.author from PDF with info dict")
+	}
+}
+
+func TestExtract_PDF_Malformed_NoCrash(t *testing.T) {
+	// Garbage after header — pdfcpu should handle gracefully.
+	data := []byte("%PDF-1.4\ngarbage garbage garbage")
+	props := Extract("application/pdf", bytes.NewReader(data))
+	if props["pdf.version"] != "1.4" {
+		t.Errorf("pdf.version: got %q, want %q", props["pdf.version"], "1.4")
+	}
+	_ = props["pdf.pages"]
+}
+
 // ─── Office tests ─────────────────────────────────────────────────────────────
 
 func TestExtract_Office_OOXML(t *testing.T) {
