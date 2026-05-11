@@ -208,3 +208,34 @@ func TestPasswordChange_Web_ReturnsUserRow(t *testing.T) {
 		t.Errorf("expected row id in response, got:\n%s", body)
 	}
 }
+
+// TestUsersPage_Renders verifies that GET /admin/tenants/{tenantID}/users
+// returns 200 and includes the perm_mode card and no template errors.
+func TestUsersPage_Renders(t *testing.T) {
+	srv, _, tenant, _, token := newWebServer(t)
+
+	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/tenants/"+tenant.ID+"/users", token, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET users: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status: got %d, want 200; body: %s", resp.StatusCode, body)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	page := string(body)
+
+	if !strings.Contains(page, "Access policy") {
+		t.Error("expected perm_mode card (\"Access policy\") in users page")
+	}
+	if !strings.Contains(page, "perm-mode-"+tenant.ID) {
+		t.Errorf("expected perm_mode select id in page, tenant: %s", tenant.ID)
+	}
+}
