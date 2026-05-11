@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -21,14 +23,51 @@ func newTestStore(t *testing.T) *Store {
 	return NewStore(sqlDB)
 }
 
+// testTenant is a minimal tenant record returned by seedTenant.
+type testTenant struct {
+	ID string
+}
+
 // seedTenant inserts a bare tenant row so FK constraints on users are satisfied.
-func seedTenant(t *testing.T, s *Store, id string) {
+// If an id argument is provided it is used as-is; otherwise a UUID is generated.
+func seedTenant(t *testing.T, s *Store, ids ...string) testTenant {
 	t.Helper()
+	id := ""
+	if len(ids) > 0 {
+		id = ids[0]
+	}
+	if id == "" {
+		id = "tenant-" + randomSuffix()
+	}
 	_, err := s.db.ExecContext(context.Background(),
 		`INSERT INTO tenants (id, name, description) VALUES (?, ?, ?)`, id, id, "")
 	if err != nil {
 		t.Fatalf("seedTenant %q: %v", id, err)
 	}
+	return testTenant{ID: id}
+}
+
+// randomSuffix returns a short random hex string for unique IDs in tests.
+func randomSuffix() string {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf("%x", b)
+}
+
+// seedUser inserts a user row for the given tenant and returns the created User.
+func seedUser(t *testing.T, s *Store, tenantID, username string, userType UserType) *User {
+	t.Helper()
+	hash, err := HashPassword("testpass")
+	if err != nil {
+		t.Fatalf("seedUser HashPassword: %v", err)
+	}
+	u, err := s.CreateUser(context.Background(), tenantID, username, "", username, username, hash, userType)
+	if err != nil {
+		t.Fatalf("seedUser CreateUser %q: %v", username, err)
+	}
+	return u
 }
 
 func TestCreateDomainAdmin_CreatesAdminUser(t *testing.T) {
@@ -329,5 +368,188 @@ func TestCountAPIKeysByTenant_ReturnsCorrectCount(t *testing.T) {
 	}
 	if n != 2 {
 		t.Errorf("got %d, want 2", n)
+	}
+}
+
+// ─── Rights store methods ─────────────────────────────────────────────────────
+
+func TestUpsertRight_CreateAndUpdate(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	tenant := seedTenant(t, s)
+	user := seedUser(t, s, tenant.ID, "alice", UserTypeUser)
+
+	params := UpsertRightParams{
+		TenantID:      tenant.ID,
+		PrincipalType: "user",
+		PrincipalID:   user.ID,
+		ResourceType:  "project",
+		ResourceID:    "proj-1",
+		CanRead:       true,
+	}
+	if err := s.UpsertRight(ctx, params); err != nil {
+		t.Fatalf("UpsertRight: %v", err)
+	}
+
+	rights, err := s.ListRights(ctx, tenant.ID, "user", user.ID)
+	if err != nil {
+		t.Fatalf("ListRights: %v", err)
+	}
+	if len(rights) != 1 {
+		t.Fatalf("expected 1 right, got %d", len(rights))
+	}
+	if !rights[0].CanRead {
+		t.Error("CanRead should be true")
+	}
+	if rights[0].CanDelete {
+		t.Error("CanDelete should be false")
+	}
+
+	// Update: grant delete too.
+	params.CanDelete = true
+	if err := s.UpsertRight(ctx, params); err != nil {
+		t.Fatalf("UpsertRight update: %v", err)
+	}
+	rights2, _ := s.ListRights(ctx, tenant.ID, "user", user.ID)
+	if !rights2[0].CanDelete {
+		t.Error("CanDelete should be true after update")
+	}
+}
+
+func TestDeleteRight_RemovesRow(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	tenant := seedTenant(t, s)
+	user := seedUser(t, s, tenant.ID, "bob", UserTypeUser)
+
+	params := UpsertRightParams{
+		TenantID:      tenant.ID,
+		PrincipalType: "user",
+		PrincipalID:   user.ID,
+		ResourceType:  "bucket",
+		ResourceID:    "bucket-1",
+		CanRead:       true,
+	}
+	_ = s.UpsertRight(ctx, params)
+
+	if err := s.DeleteRight(ctx, tenant.ID, "user", user.ID, "bucket", "bucket-1"); err != nil {
+		t.Fatalf("DeleteRight: %v", err)
+	}
+
+	rights, _ := s.ListRights(ctx, tenant.ID, "user", user.ID)
+	if len(rights) != 0 {
+		t.Errorf("expected 0 rights after delete, got %d", len(rights))
+	}
+}
+
+func TestDeleteRight_NotFound_ReturnsError(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	tenant := seedTenant(t, s)
+
+	err := s.DeleteRight(ctx, tenant.ID, "user", "no-user", "project", "no-proj")
+	if err == nil {
+		t.Error("expected error deleting non-existent right")
+	}
+}
+
+func TestListRights_IsolatesByPrincipal(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	tenant := seedTenant(t, s)
+	alice := seedUser(t, s, tenant.ID, "alice", UserTypeUser)
+	bob := seedUser(t, s, tenant.ID, "bob", UserTypeUser)
+
+	_ = s.UpsertRight(ctx, UpsertRightParams{
+		TenantID: tenant.ID, PrincipalType: "user", PrincipalID: alice.ID,
+		ResourceType: "project", ResourceID: "proj-1", CanRead: true,
+	})
+	_ = s.UpsertRight(ctx, UpsertRightParams{
+		TenantID: tenant.ID, PrincipalType: "user", PrincipalID: bob.ID,
+		ResourceType: "project", ResourceID: "proj-2", CanRead: true,
+	})
+
+	aliceRights, _ := s.ListRights(ctx, tenant.ID, "user", alice.ID)
+	if len(aliceRights) != 1 || aliceRights[0].ResourceID != "proj-1" {
+		t.Errorf("alice should have exactly 1 right on proj-1, got %+v", aliceRights)
+	}
+
+	bobRights, _ := s.ListRights(ctx, tenant.ID, "user", bob.ID)
+	if len(bobRights) != 1 || bobRights[0].ResourceID != "proj-2" {
+		t.Errorf("bob should have exactly 1 right on proj-2, got %+v", bobRights)
+	}
+}
+
+func TestGetAPIKeyRights_ReturnOnlyAPIKeyRights(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	tenant := seedTenant(t, s)
+	user := seedUser(t, s, tenant.ID, "alice", UserTypeUser)
+
+	// Grant a right to the user (principal_type=user).
+	_ = s.UpsertRight(ctx, UpsertRightParams{
+		TenantID: tenant.ID, PrincipalType: "user", PrincipalID: user.ID,
+		ResourceType: "project", ResourceID: "proj-1", CanRead: true,
+	})
+
+	// Grant a right to an API key (principal_type=apikey).
+	keyID := "apikey-test-id"
+	_ = s.UpsertRight(ctx, UpsertRightParams{
+		TenantID: tenant.ID, PrincipalType: "apikey", PrincipalID: keyID,
+		ResourceType: "bucket", ResourceID: "bucket-1", CanRead: true,
+	})
+
+	rights, err := s.GetAPIKeyRights(ctx, tenant.ID, keyID)
+	if err != nil {
+		t.Fatalf("GetAPIKeyRights: %v", err)
+	}
+	if len(rights) != 1 {
+		t.Fatalf("expected 1 apikey right, got %d", len(rights))
+	}
+	if rights[0].ResourceType != "bucket" {
+		t.Errorf("expected bucket right, got %s", rights[0].ResourceType)
+	}
+}
+
+func TestGetSetTenantPermMode(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	tenant := seedTenant(t, s)
+
+	// Default should be explicit.
+	mode, err := s.GetTenantPermMode(ctx, tenant.ID)
+	if err != nil {
+		t.Fatalf("GetTenantPermMode: %v", err)
+	}
+	if mode != PermModeExplicit {
+		t.Errorf("default mode: got %q, want %q", mode, PermModeExplicit)
+	}
+
+	// Update to inherit.
+	if err := s.SetTenantPermMode(ctx, tenant.ID, PermModeInherit); err != nil {
+		t.Fatalf("SetTenantPermMode: %v", err)
+	}
+
+	mode2, _ := s.GetTenantPermMode(ctx, tenant.ID)
+	if mode2 != PermModeInherit {
+		t.Errorf("after set: got %q, want %q", mode2, PermModeInherit)
+	}
+}
+
+func TestGetTenantPermMode_UnknownTenantReturnsExplicit(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	mode, err := s.GetTenantPermMode(ctx, "does-not-exist")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mode != PermModeExplicit {
+		t.Errorf("unknown tenant: got %q, want explicit", mode)
 	}
 }

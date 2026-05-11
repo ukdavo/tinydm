@@ -388,6 +388,130 @@ func (s *Store) GetUserRights(ctx context.Context, tenantID, userID string) ([]R
 	return rights, rows.Err()
 }
 
+// UpsertRightParams holds the fields for creating or updating a right row.
+type UpsertRightParams struct {
+	TenantID      string
+	PrincipalType string // "user" | "group" | "apikey"
+	PrincipalID   string
+	ResourceType  string // "tenant" | "project" | "bucket" | "document"
+	ResourceID    string // specific UUID or "*"
+	CanCreate     bool
+	CanRead       bool
+	CanUpdate     bool
+	CanDelete     bool
+}
+
+// UpsertRight creates or replaces a right row for the given principal/resource.
+func (s *Store) UpsertRight(ctx context.Context, p UpsertRightParams) error {
+	id := uuid.New().String()
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO rights
+		    (id, tenant_id, principal_type, principal_id, resource_type, resource_id,
+		     can_create, can_read, can_update, can_delete)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(principal_type, principal_id, resource_type, resource_id)
+		DO UPDATE SET
+		    can_create = excluded.can_create,
+		    can_read   = excluded.can_read,
+		    can_update = excluded.can_update,
+		    can_delete = excluded.can_delete`,
+		id, p.TenantID, p.PrincipalType, p.PrincipalID,
+		p.ResourceType, p.ResourceID,
+		boolToInt(p.CanCreate), boolToInt(p.CanRead),
+		boolToInt(p.CanUpdate), boolToInt(p.CanDelete),
+	)
+	if err != nil {
+		return fmt.Errorf("upsert right: %w", err)
+	}
+	return nil
+}
+
+// DeleteRight removes the specific right row. Returns an error if the row does
+// not exist.
+func (s *Store) DeleteRight(ctx context.Context, tenantID, principalType, principalID, resourceType, resourceID string) error {
+	res, err := s.db.ExecContext(ctx, `
+		DELETE FROM rights
+		WHERE tenant_id = ? AND principal_type = ? AND principal_id = ?
+		  AND resource_type = ? AND resource_id = ?`,
+		tenantID, principalType, principalID, resourceType, resourceID,
+	)
+	if err != nil {
+		return fmt.Errorf("delete right: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("right not found")
+	}
+	return nil
+}
+
+// ListRights returns all rights for a given principal, ordered by resource_type,
+// resource_id.
+func (s *Store) ListRights(ctx context.Context, tenantID, principalType, principalID string) ([]Right, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT principal_type, principal_id, resource_type, resource_id,
+		       can_create, can_read, can_update, can_delete
+		FROM rights
+		WHERE tenant_id = ? AND principal_type = ? AND principal_id = ?
+		ORDER BY resource_type, resource_id`,
+		tenantID, principalType, principalID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list rights: %w", err)
+	}
+	defer rows.Close()
+	return scanRights(rows)
+}
+
+// GetAPIKeyRights returns all rights for an API key principal.
+func (s *Store) GetAPIKeyRights(ctx context.Context, tenantID, apiKeyID string) ([]Right, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT principal_type, principal_id, resource_type, resource_id,
+		       can_create, can_read, can_update, can_delete
+		FROM rights
+		WHERE tenant_id = ? AND principal_type = 'apikey' AND principal_id = ?`,
+		tenantID, apiKeyID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get api key rights: %w", err)
+	}
+	defer rows.Close()
+	return scanRights(rows)
+}
+
+// GetTenantPermMode fetches the perm_mode for the given tenant. Returns
+// PermModeExplicit if the tenant does not exist (fail-safe).
+func (s *Store) GetTenantPermMode(ctx context.Context, tenantID string) (PermMode, error) {
+	var mode string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT perm_mode FROM tenants WHERE id = ? AND deleted_at IS NULL`, tenantID,
+	).Scan(&mode)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PermModeExplicit, nil
+	}
+	if err != nil {
+		return PermModeExplicit, fmt.Errorf("get perm mode: %w", err)
+	}
+	return PermMode(mode), nil
+}
+
+// SetTenantPermMode updates the perm_mode for a tenant.
+func (s *Store) SetTenantPermMode(ctx context.Context, tenantID string, mode PermMode) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE tenants SET perm_mode = ?, updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ? AND deleted_at IS NULL`,
+		string(mode), tenantID,
+	)
+	if err != nil {
+		return fmt.Errorf("set perm mode: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("tenant not found")
+	}
+	return nil
+}
+
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
 // EnsureAdminUser creates the global superadmin and a domain admin for the
@@ -475,6 +599,34 @@ func generatePassword(n int) (string, error) {
 		encoded = encoded[:n]
 	}
 	return encoded, nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func scanRights(rows *sql.Rows) ([]Right, error) {
+	var rights []Right
+	for rows.Next() {
+		var r Right
+		var cc, cr, cu, cd int
+		if err := rows.Scan(
+			&r.PrincipalType, &r.PrincipalID,
+			&r.ResourceType, &r.ResourceID,
+			&cc, &cr, &cu, &cd,
+		); err != nil {
+			return nil, fmt.Errorf("scan right: %w", err)
+		}
+		r.CanCreate = cc == 1
+		r.CanRead = cr == 1
+		r.CanUpdate = cu == 1
+		r.CanDelete = cd == 1
+		rights = append(rights, r)
+	}
+	return rights, rows.Err()
 }
 
 func scanUser(row *sql.Row) (*User, error) {
