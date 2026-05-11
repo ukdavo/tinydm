@@ -128,29 +128,18 @@ func main() {
 
 	// Bootstrap: seed the first admin if the DB is empty and a password is set.
 	if cfg.BootstrapAdminPass != "" {
-		domainAdminPass, err := authStore.EnsureAdminUser(
+		if err := authStore.EnsureAdminUser(
 			context.Background(),
-			cfg.BootstrapTenantID,
-			cfg.BootstrapTenantName,
 			cfg.BootstrapAdminUser,
 			cfg.BootstrapAdminEmail,
 			cfg.BootstrapAdminPass,
-		)
-		if err != nil {
+		); err != nil {
 			slog.Error("bootstrap failed", "error", err)
 			os.Exit(1)
 		}
 		slog.Info("bootstrap complete (no-op if users already exist)",
-			"tenant", cfg.BootstrapTenantID,
 			"user", cfg.BootstrapAdminUser,
 		)
-		if domainAdminPass != "" {
-			slog.Info("bootstrap domain admin created — store this password, it will not be shown again",
-				"tenant", cfg.BootstrapTenantID,
-				"username", "admin",
-				"password", domainAdminPass,
-			)
-		}
 	}
 
 	// ── Router ────────────────────────────────────────────────────────────────
