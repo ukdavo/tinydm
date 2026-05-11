@@ -75,7 +75,7 @@
   <td class="muted">{{.DocCount}}</td>
   <td class="text-right">
     <div class="flex gap-8 items-center" style="justify-content:flex-end;">
-      {{if eq $.Principal.UserType "admin"}}
+      {{if eq .Principal.UserType "admin"}}
       <button class="btn btn-ghost btn-sm"
         hx-get="/app/projects/{{.ProjectID}}/buckets/{{.ID}}/rights"
         hx-target="#rights-panel-area"

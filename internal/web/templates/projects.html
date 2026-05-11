@@ -65,7 +65,7 @@
   <td class="muted">{{.Description}}</td>
   <td class="muted">—</td>
   <td class="text-right">
-    {{if eq $.Principal.UserType "admin"}}
+    {{if eq .Principal.UserType "admin"}}
     <button class="btn btn-ghost btn-sm"
       hx-get="/app/projects/{{.ID}}/rights"
       hx-target="#rights-panel-area"

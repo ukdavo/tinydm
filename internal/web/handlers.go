@@ -176,18 +176,31 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 
 // ── Projects ──────────────────────────────────────────────────────────────────
 
+// projectRowData wraps a Project with the requesting principal so the
+// project-row partial can check admin status without relying on $.Principal
+// (which is rebound to the argument when a named template is called).
+type projectRowData struct {
+	*repo.Project
+	Principal auth.Principal
+}
+
 type projectsData struct {
 	basePage
-	Projects []*repo.Project
+	Projects []projectRowData
 	Pager    WebPagination
 }
 
 func (h *Handler) projects(w http.ResponseWriter, r *http.Request) {
 	page, limit := parsePage(r)
+	principal, _ := auth.PrincipalFromContext(r.Context())
 	projects, total, _ := h.repo.ListProjects(r.Context(), repo.PageOpts{Limit: limit, Offset: pageOffset(page, limit)})
+	rows := make([]projectRowData, len(projects))
+	for i, p := range projects {
+		rows[i] = projectRowData{Project: p, Principal: principal}
+	}
 	h.render(w, "projects", projectsData{
 		basePage: h.base(r, "projects"),
-		Projects: projects,
+		Projects: rows,
 		Pager:    newWebPagination(total, page, limit, ""),
 	})
 }
@@ -204,7 +217,8 @@ func (h *Handler) createProject(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "create failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	h.renderPartial(w, "projects", "project-row", p)
+	principal, _ := auth.PrincipalFromContext(r.Context())
+	h.renderPartial(w, "projects", "project-row", projectRowData{Project: p, Principal: principal})
 }
 
 func (h *Handler) deleteProject(w http.ResponseWriter, r *http.Request) {
@@ -225,6 +239,14 @@ type bucketRow struct {
 	DocCount int
 }
 
+// bucketRowData wraps a bucketRow with the requesting principal so the
+// bucket-row partial can check admin status without relying on $.Principal
+// (which is rebound to the argument when a named template is called).
+type bucketRowData struct {
+	bucketRow
+	Principal auth.Principal
+}
+
 type projectStats struct {
 	Buckets   int
 	Documents int
@@ -234,7 +256,7 @@ type bucketsData struct {
 	basePage
 	Project *repo.Project
 	Stats   projectStats
-	Buckets []bucketRow
+	Buckets []bucketRowData
 	Pager   WebPagination
 }
 
@@ -247,12 +269,13 @@ func (h *Handler) buckets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	principal, _ := auth.PrincipalFromContext(r.Context())
 	page, limit := parsePage(r)
 	raw, total, _ := h.repo.ListBuckets(r.Context(), projectID, repo.PageOpts{Limit: limit, Offset: pageOffset(page, limit)})
-	var rows []bucketRow
+	var rows []bucketRowData
 	for _, b := range raw {
 		n, _ := h.repo.CountDocumentsInBucket(r.Context(), b.ID)
-		rows = append(rows, bucketRow{Bucket: b, DocCount: n})
+		rows = append(rows, bucketRowData{bucketRow: bucketRow{Bucket: b, DocCount: n}, Principal: principal})
 	}
 
 	var stats projectStats
@@ -282,7 +305,8 @@ func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n, _ := h.repo.CountDocumentsInBucket(r.Context(), b.ID)
-	h.renderPartial(w, "buckets", "bucket-row", bucketRow{Bucket: b, DocCount: n})
+	principal, _ := auth.PrincipalFromContext(r.Context())
+	h.renderPartial(w, "buckets", "bucket-row", bucketRowData{bucketRow: bucketRow{Bucket: b, DocCount: n}, Principal: principal})
 }
 
 func (h *Handler) deleteBucket(w http.ResponseWriter, r *http.Request) {
@@ -680,6 +704,7 @@ func (h *Handler) editBucketForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n, _ := h.repo.CountDocumentsInBucket(r.Context(), b.ID)
+	// bucket-edit-row does not use Principal, but pass bucketRow directly for consistency.
 	h.renderPartial(w, "buckets", "bucket-edit-row", bucketRow{Bucket: b, DocCount: n})
 }
 
@@ -691,7 +716,8 @@ func (h *Handler) bucketRowPartial(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n, _ := h.repo.CountDocumentsInBucket(r.Context(), b.ID)
-	h.renderPartial(w, "buckets", "bucket-row", bucketRow{Bucket: b, DocCount: n})
+	principal, _ := auth.PrincipalFromContext(r.Context())
+	h.renderPartial(w, "buckets", "bucket-row", bucketRowData{bucketRow: bucketRow{Bucket: b, DocCount: n}, Principal: principal})
 }
 
 func (h *Handler) updateBucket(w http.ResponseWriter, r *http.Request) {
@@ -708,7 +734,8 @@ func (h *Handler) updateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n, _ := h.repo.CountDocumentsInBucket(r.Context(), b.ID)
-	h.renderPartial(w, "buckets", "bucket-row", bucketRow{Bucket: b, DocCount: n})
+	principal, _ := auth.PrincipalFromContext(r.Context())
+	h.renderPartial(w, "buckets", "bucket-row", bucketRowData{bucketRow: bucketRow{Bucket: b, DocCount: n}, Principal: principal})
 }
 
 // ── Phase 7: Document rows (HTMX search / tag-filter partial) ─────────────────
