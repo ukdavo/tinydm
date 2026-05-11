@@ -8,16 +8,16 @@ A simple, self-hosted document management system. Small footprint, easy to deplo
 
 ## Features
 
-- **Multi-tenant hierarchy** — Tenant → Project → Bucket → Document
+- **Hierarchy** — Project → Bucket → Document
 - **Three authentication methods** — JWT, HTTP Basic, API key
-- **Role-based access control** — three roles (superadmin / admin / user) with per-resource rights; admin and superadmin bypass rights checks automatically
+- **Role-based access control** — two roles (admin / user) with per-resource rights; admin bypasses rights checks automatically
 - **Document versioning** — automatic snapshot on every update; restore to any previous version
 - **Tags** — add, remove, or filter documents by free-form tags
 - **Custom properties** — runtime-defined key/value metadata per document
 - **Automatic metadata extraction** — image dimensions (JPEG, PNG, GIF), PDF version string, Office container type (OOXML / OLE2) detected on upload
 - **Immutable audit log** — every mutating request recorded async; queryable by action (with `*` wildcard), principal, resource, and date range
 - **Pagination** — all REST list endpoints return a `{"data":[…], "pagination":{…}}` envelope; use `?limit=` and `?offset=` to page through large result sets; the web UI renders prev/next pager bars on every list page
-- **Admin web UI** — HTMX-powered interface at `/admin/` covering tenants, projects, buckets, documents, users, API keys, and audit log; all assets embedded in the binary
+- **Admin web UI** — HTMX-powered interface at `/admin/` covering projects, buckets, documents, users, API keys, and audit log; all assets embedded in the binary
 - **Document & bucket management UI** — inline bucket rename, document update, name search, tag filter, tag management, custom properties panel, system metadata display, version history and one-click restore
 - **Content-addressed storage** — SHA-256 keyed files; identical content is stored once
 - **OpenAPI 3.1 documentation** — Swagger UI at `/api/docs`, raw spec at `/api/docs/openapi.yaml`; both embedded in the binary
@@ -59,9 +59,9 @@ TINYDM_BOOTSTRAP_ADMIN_PASS=changeme \
 go run ./cmd/tinydm
 ```
 
-The server starts on `http://localhost:8080`. On first run a default tenant (`default`) and an admin user (`admin`) are created automatically.
+The server starts on `http://localhost:8080`. On first run an admin user (`admin`) is created automatically.
 
-Open `http://localhost:8080/admin/` in a browser to reach the admin UI. Sign in with tenant name `Default`, username `admin`, and the password you set above.
+Open `http://localhost:8080/admin/` in a browser to reach the admin UI. Sign in with username `admin` and the password you set above.
 
 ### Run with Docker
 
@@ -95,8 +95,7 @@ Navigate to `http://localhost:8080/admin/` after starting the server.
 | Section | What you can do |
 |---|---|
 | Dashboard | System-wide counts and recent audit events |
-| Tenants | Create and delete tenants; drill into projects |
-| Projects | Create and delete projects within a tenant |
+| Projects | Create and delete projects |
 | Buckets | Create and delete buckets within a project |
 | Documents | Upload, download, and delete files; truncated checksum shown |
 | Users | Create users, set role (admin / user), activate / deactivate, delete |
@@ -135,11 +134,10 @@ All configuration is via environment variables.
 | `TINYDM_JWT_SECRET` | _(required)_ | Secret used to sign JWTs — use a long random string in production |
 | `TINYDM_JWT_EXPIRY_MINUTES` | `60` | JWT lifetime in minutes |
 | `TINYDM_SECURE_COOKIES` | `false` | Set `true` when serving over HTTPS to mark session cookies Secure |
-| `TINYDM_BOOTSTRAP_TENANT_ID` | `default` | Tenant ID created on first run |
-| `TINYDM_BOOTSTRAP_TENANT_NAME` | `Default` | Tenant display name created on first run |
-| `TINYDM_BOOTSTRAP_ADMIN_USER` | `superadmin` | Superadmin username created on first run |
+| `TINYDM_BOOTSTRAP_ADMIN_USER` | `admin` | Admin username created on first run |
 | `TINYDM_BOOTSTRAP_ADMIN_EMAIL` | _(empty)_ | Admin email created on first run |
 | `TINYDM_BOOTSTRAP_ADMIN_PASS` | _(empty)_ | Admin password on first run — **bootstrap is skipped if unset** |
+| `TINYDM_PERM_MODE` | `open` | RBAC default stance: `open` (allow unless denied) or `explicit` (deny unless granted) |
 
 ### PostgreSQL
 
@@ -158,8 +156,7 @@ Both drivers are compiled into every binary. No rebuild is required to switch. M
 
 On the very first startup, if `TINYDM_BOOTSTRAP_ADMIN_PASS` is set and the database contains no users, TinyDM will:
 
-1. Create the bootstrap tenant (using `TINYDM_BOOTSTRAP_TENANT_ID`)
-2. Create a superadmin account with the supplied credentials
+1. Create an admin account with the supplied credentials.
 
 This is a one-time operation — subsequent starts skip it silently.
 
@@ -179,7 +176,7 @@ TinyDM supports three methods on every protected endpoint.
 # 1. Obtain a token
 curl -s -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"tenant_id":"default","username":"admin","password":"changeme"}'
+  -d '{"username":"admin","password":"changeme"}'
 
 # 2. Use the token
 curl http://localhost:8080/api/v1/auth/me \
@@ -190,8 +187,7 @@ curl http://localhost:8080/api/v1/auth/me \
 
 ```bash
 curl http://localhost:8080/api/v1/auth/me \
-  -H "Authorization: Basic $(echo -n 'admin:changeme' | base64)" \
-  -H "X-Tenant-ID: default"
+  -H "Authorization: Basic $(echo -n 'admin:changeme' | base64)"
 ```
 
 **API key**
@@ -247,7 +243,7 @@ has_more=$(echo "$resp" | jq '.pagination.has_more')
 # false → you are on the last page
 ```
 
-Paginated endpoints: tenants, projects, buckets, documents (including `?q=` search and `?tag=` filter), document versions, users, API keys, and audit events.
+Paginated endpoints: projects, buckets, documents (including `?q=` search and `?tag=` filter), document versions, users, API keys, and audit events.
 
 Tags and custom properties are not paginated — they return bare arrays/objects because the number of tags or properties per document is inherently small.
 
@@ -269,28 +265,18 @@ Interactive documentation is embedded in the binary — no separate tool require
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `GET` | `/health` | None | Liveness / readiness check — returns `{"status":"ok"}` |
-| `POST` | `/api/v1/auth/login` | None | Exchange credentials for a JWT — body: `{"tenant_id":"…","username":"…","password":"…"}` |
-| `GET` | `/api/v1/auth/me` | Required | Returns the authenticated principal (ID, tenant, role) |
-
-#### Tenants _(superadmin only for write operations)_
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/v1/tenants` | List all tenants _(paginated)_ |
-| `POST` | `/api/v1/tenants` | Create a tenant |
-| `GET` | `/api/v1/tenants/{tenantID}` | Get a tenant |
-| `PUT` | `/api/v1/tenants/{tenantID}` | Update a tenant |
-| `DELETE` | `/api/v1/tenants/{tenantID}` | Soft-delete a tenant |
+| `POST` | `/api/v1/auth/login` | None | Exchange credentials for a JWT — body: `{"username":"…","password":"…"}` |
+| `GET` | `/api/v1/auth/me` | Required | Returns the authenticated principal (ID, role) |
 
 #### Projects _(admin only for write operations)_
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/v1/tenants/{tenantID}/projects` | List projects _(paginated)_ |
-| `POST` | `/api/v1/tenants/{tenantID}/projects` | Create a project |
-| `GET` | `…/projects/{projectID}` | Get a project |
-| `PUT` | `…/projects/{projectID}` | Update a project |
-| `DELETE` | `…/projects/{projectID}` | Soft-delete a project |
+| `GET` | `/api/v1/projects` | List projects _(paginated)_ |
+| `POST` | `/api/v1/projects` | Create a project |
+| `GET` | `/api/v1/projects/{projectID}` | Get a project |
+| `PUT` | `/api/v1/projects/{projectID}` | Update a project |
+| `DELETE` | `/api/v1/projects/{projectID}` | Soft-delete a project |
 
 #### Buckets _(admin only for write operations)_
 
@@ -324,11 +310,11 @@ Interactive documentation is embedded in the binary — no separate tool require
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/v1/tenants/{tenantID}/users` | List users _(paginated)_. Password hashes are never returned. |
-| `PATCH` | `/api/v1/tenants/{tenantID}/users/{userID}/password` | Change a user's password — body: `{"password":"…"}` |
-| `GET` | `/api/v1/tenants/{tenantID}/apikeys` | List API keys _(paginated)_. Hashes and full key values are never returned; only `key_prefix` is exposed. |
-| `POST` | `/api/v1/tenants/{tenantID}/apikeys` | Generate an API key — plaintext returned once only; body: `{"name":"…","expires_at":"…"}` |
-| `POST` | `/api/v1/tenants/{tenantID}/apikeys/{keyID}/revoke` | Revoke an API key |
+| `GET` | `/api/v1/users` | List users _(paginated)_. Password hashes are never returned. |
+| `PATCH` | `/api/v1/users/{userID}/password` | Change a user's password — body: `{"password":"…"}` |
+| `GET` | `/api/v1/apikeys` | List API keys _(paginated)_. Hashes and full key values are never returned; only `key_prefix` is exposed. |
+| `POST` | `/api/v1/apikeys` | Generate an API key — plaintext returned once only; body: `{"name":"…","expires_at":"…"}` |
+| `POST` | `/api/v1/apikeys/{keyID}/revoke` | Revoke an API key |
 
 #### Tags
 
@@ -354,7 +340,7 @@ Custom key/value metadata. Keys prefixed with `sys.` are reserved for system use
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/api/v1/tenants/{tenantID}/audit` | Required | Query audit events _(paginated)_. Filters: `action` (supports `*` wildcard), `principal`, `resource`, `from`, `to`. Paging: `limit` (default 50, max 500), `offset` |
+| `GET` | `/api/v1/audit` | Required | Query audit events _(paginated)_. Filters: `action` (supports `*` wildcard), `principal`, `resource`, `from`, `to`. Paging: `limit` (default 50, max 500), `offset` |
 
 ---
 
@@ -440,7 +426,7 @@ See [PLAN.md](./PLAN.md) for the full task-level breakdown, [DEPLOYMENT.md](./DE
 |---|---|---|
 | 1 | Foundation — scaffold, DB, storage, config | ✅ Done |
 | 2 | Authentication & authorisation | ✅ Done |
-| 3 | Repository API — tenant / project / bucket / document CRUD | ✅ Done |
+| 3 | Repository API — project / bucket / document CRUD | ✅ Done |
 | 4 | Document versioning, tags, custom properties, metadata extraction | ✅ Done |
 | 5 | Audit log | ✅ Done |
 | 6 | Admin web UI (HTMX) | ✅ Done |
