@@ -110,13 +110,15 @@
         hx-swap="outerHTML">
         Change Password
       </button>
-      {{if eq (string .UserType) "user"}}
+      {{if ne (string .UserType) "superadmin"}}
         <button class="btn btn-ghost btn-sm"
           hx-get="/admin/tenants/{{.TenantID}}/users/{{.ID}}/rights"
           hx-target="#rights-panel-area"
           hx-swap="innerHTML">
           Rights
         </button>
+      {{end}}
+      {{if eq (string .UserType) "user"}}
         {{if .IsActive}}
         <button class="btn btn-ghost btn-sm"
           hx-post="/admin/users/{{.ID}}/deactivate"
