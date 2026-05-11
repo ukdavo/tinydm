@@ -8,10 +8,12 @@
 </div>
 
 <div class="stats-grid">
+  {{if eq .Principal.UserType "admin"}}
   <div class="stat-card">
     <div class="label">Users</div>
     <div class="value">{{.Stats.Users}}</div>
   </div>
+  {{end}}
   <div class="stat-card">
     <div class="label">Projects</div>
     <div class="value">{{.Stats.Projects}}</div>
@@ -26,10 +28,11 @@
   </div>
 </div>
 
+{{if eq .Principal.UserType "admin"}}
 <div class="card">
   <div class="card-header">
     <h2>Recent Activity</h2>
-    <a href="/admin/audit" class="btn btn-ghost btn-sm">View all →</a>
+    <a href="/app/audit" class="btn btn-ghost btn-sm">View all →</a>
   </div>
   <div class="table-wrap">
     {{if .RecentAudit}}
@@ -61,4 +64,5 @@
     {{end}}
   </div>
 </div>
+{{end}}
 {{end}}
