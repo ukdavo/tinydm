@@ -153,8 +153,10 @@ func (h *DocumentHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Extract and persist metadata properties (best-effort).
-	if props := meta.Extract(contentType, hdr); len(props) > 0 {
-		_ = h.store.MergeDocumentProperties(r.Context(), doc.ID, props)
+	if _, err := file.Seek(0, io.SeekStart); err == nil {
+		if props := meta.Extract(contentType, file); len(props) > 0 {
+			_ = h.store.MergeDocumentProperties(r.Context(), doc.ID, props)
+		}
 	}
 
 	writeJSON(w, http.StatusCreated, doc)
@@ -242,7 +244,9 @@ func (h *DocumentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		size = sz
 		checksum = cs
 		storageKey = key
-		metaProps = meta.Extract(contentType, hdr)
+		if _, serr := file.Seek(0, io.SeekStart); serr == nil {
+			metaProps = meta.Extract(ct, file)
+		}
 	}
 
 	updated, err := h.store.UpdateDocument(r.Context(), doc.ID, name, contentType, size, checksum, storageKey, p.ID)

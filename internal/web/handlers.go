@@ -16,6 +16,7 @@ import (
 
 	"tinydm/internal/audit"
 	"tinydm/internal/auth"
+	"tinydm/internal/meta"
 	"tinydm/internal/repo"
 )
 
@@ -535,15 +536,19 @@ func (h *Handler) uploadDocument(w http.ResponseWriter, r *http.Request) {
 		name = fh.Filename
 	}
 
+	hdr := make([]byte, 512)
+	n, _ := file.Read(hdr)
+	hdr = hdr[:n]
+	contentType := http.DetectContentType(hdr)
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		http.Error(w, "could not read file", http.StatusInternalServerError)
+		return
+	}
+
 	key, size, checksum, err := h.storage.Put(r.Context(), file)
 	if err != nil {
 		http.Error(w, "storage error: "+err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	contentType := fh.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
 	}
 
 	p, _ := auth.PrincipalFromContext(r.Context())
@@ -551,6 +556,12 @@ func (h *Handler) uploadDocument(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "db error: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	if _, serr := file.Seek(0, io.SeekStart); serr == nil {
+		if props := meta.Extract(contentType, file); len(props) > 0 {
+			_ = h.repo.MergeDocumentProperties(r.Context(), doc.ID, props)
+		}
 	}
 
 	h.renderPartial(w, "documents", "document-row", doc)
