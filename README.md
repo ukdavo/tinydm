@@ -380,26 +380,6 @@ make docker-run   # run latest Docker image with a local data volume
 make clean        # remove bin/ and local *.db files
 ```
 
-### Integration tests
-
-Shell scripts cover the full stack end-to-end. Use `run_tests.sh` to run all suites in one pass, or invoke individual scripts:
-
-```bash
-./run.sh &        # start the server
-sleep 2
-
-./run_tests.sh    # run all suites; prints a grand pass/fail summary
-
-# Or run individual suites:
-./test_phase4.sh        # versioning, tags, properties, metadata extraction
-./test_phase5.sh        # audit log recording, filtering, access control
-./test_phase6.sh        # admin web UI — login, dashboard, CRUD, audit log viewer
-./test_phase7.sh        # document & bucket management UI, search, tag filter, versions
-./test_pagination.sh    # REST API pagination — envelope shape, limit/offset, has_more,
-                        #   out-of-bounds offsets, default limits, search+filter envelopes
-```
-
-All scripts accept an optional `BASE_URL` argument (default `http://localhost:8080`) and forward `TINYDM_ADMIN_USER` / `TINYDM_ADMIN_PASS` environment variables. They require `curl` and `python3`. Each request is printed to stderr with method, path, and HTTP status as it runs.
 
 ### Project structure
 
@@ -421,12 +401,6 @@ tinydm/
 │   └── web/            HTMX admin UI — handler, templates, static assets
 │       ├── static/     Embedded CSS
 │       └── templates/  Embedded HTML templates (base layout + 8 pages)
-├── run_tests.sh        Run all integration test suites in one pass
-├── test_phase4.sh      Phase 4 integration tests — versioning, tags, properties, metadata
-├── test_phase5.sh      Phase 5 integration tests — audit log
-├── test_phase6.sh      Phase 6 integration tests — admin web UI
-├── test_phase7.sh      Phase 7 integration tests — document & bucket management UI
-├── test_pagination.sh  Pagination integration tests — envelope shape, limit/offset, has_more
 ├── Dockerfile
 ├── docker-compose.yml  SQLite (default) + postgres profile
 ├── Makefile
