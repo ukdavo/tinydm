@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	figure "github.com/common-nighthawk/go-figure"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
@@ -32,18 +33,9 @@ var (
 	buildDate = "unknown"
 )
 
-const banner = `
- _____  _                   ____   __  __
-|_   _|(_)  _ __    _   _  |  _ \ |  \/  |
-  | |  | | | '_ \  | | | | | | | || |\/| |
-  | |  | | | | | | | |_| | | |_| || |  | |
-  |_|  |_| |_| |_|  \__, | |____/ |_|  |_|
-                     |___/
-  Simple Document Management  v%s
-`
-
 func main() {
-	fmt.Printf(banner, version)
+	figure.NewFigure("TinyDM", "rectangles", true).Print()
+	fmt.Printf("  Simple Document Management  v%s\n\n", version)
 
 	// ── Logger ────────────────────────────────────────────────────────────────
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
