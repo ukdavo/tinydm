@@ -8,18 +8,17 @@ import (
 )
 
 // TestUsers_List_IncludesFirstAndLastName verifies that the safeUser JSON
-// returned by GET /api/v1/tenants/{tenantID}/users now exposes first_name
-// and last_name (the two new fields added in migration 005).
+// returned by GET /api/v1/users now exposes first_name and last_name.
 func TestUsers_List_IncludesFirstAndLastName(t *testing.T) {
 	ts := newTestServer(t)
-	tenant, _ := ts.seedAdminUser(t, "Acme", "alice", "secret")
-	token := ts.login(t, tenant.ID, "alice", "secret")
+	ts.seedAdminUser(t, "alice", "secret")
+	token := ts.login(t, "alice", "secret")
 
 	var result struct {
 		Data []map[string]any `json:"data"`
 	}
 	resp := ts.doJSON(t, http.MethodGet,
-		"/api/v1/tenants/"+tenant.ID+"/users", nil, bearer(token), &result)
+		"/api/v1/users", nil, bearer(token), &result)
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusOK)
 
@@ -38,11 +37,11 @@ func TestUsers_List_IncludesFirstAndLastName(t *testing.T) {
 // new password authenticates while the old one no longer does.
 func TestChangePassword_Success(t *testing.T) {
 	ts := newTestServer(t)
-	tenant, admin := ts.seedAdminUser(t, "Acme", "alice", "admin-pass")
-	token := ts.login(t, tenant.ID, "alice", "admin-pass")
+	admin := ts.seedAdminUser(t, "alice", "admin-pass")
+	token := ts.login(t, "alice", "admin-pass")
 
 	resp := ts.doJSON(t, http.MethodPatch,
-		"/api/v1/tenants/"+tenant.ID+"/users/"+admin.ID+"/password",
+		"/api/v1/users/"+admin.ID+"/password",
 		map[string]string{"password": "brandnewpass"},
 		bearer(token), nil)
 	defer resp.Body.Close()
@@ -50,9 +49,8 @@ func TestChangePassword_Success(t *testing.T) {
 
 	// Old password no longer works.
 	bad := ts.doJSON(t, http.MethodPost, "/api/v1/auth/login", map[string]string{
-		"tenant_id": tenant.ID,
-		"username":  "alice",
-		"password":  "admin-pass",
+		"username": "alice",
+		"password": "admin-pass",
 	}, nil, nil)
 	bad.Body.Close()
 	if bad.StatusCode == http.StatusOK {
@@ -61,9 +59,8 @@ func TestChangePassword_Success(t *testing.T) {
 
 	// New password works.
 	good := ts.doJSON(t, http.MethodPost, "/api/v1/auth/login", map[string]string{
-		"tenant_id": tenant.ID,
-		"username":  "alice",
-		"password":  "brandnewpass",
+		"username": "alice",
+		"password": "brandnewpass",
 	}, nil, nil)
 	good.Body.Close()
 	if good.StatusCode != http.StatusOK {
@@ -74,11 +71,11 @@ func TestChangePassword_Success(t *testing.T) {
 // TestChangePassword_TooShort returns 400 when the password is shorter than 8.
 func TestChangePassword_TooShort(t *testing.T) {
 	ts := newTestServer(t)
-	tenant, admin := ts.seedAdminUser(t, "Acme", "alice", "admin-pass")
-	token := ts.login(t, tenant.ID, "alice", "admin-pass")
+	admin := ts.seedAdminUser(t, "alice", "admin-pass")
+	token := ts.login(t, "alice", "admin-pass")
 
 	resp := ts.doJSON(t, http.MethodPatch,
-		"/api/v1/tenants/"+tenant.ID+"/users/"+admin.ID+"/password",
+		"/api/v1/users/"+admin.ID+"/password",
 		map[string]string{"password": "short"},
 		bearer(token), nil)
 	defer resp.Body.Close()
@@ -88,16 +85,16 @@ func TestChangePassword_TooShort(t *testing.T) {
 // TestChangePassword_RequiresAdmin returns 403 when caller is a plain user.
 func TestChangePassword_RequiresAdmin(t *testing.T) {
 	ts := newTestServer(t)
-	tenant, _ := ts.seedAdminUser(t, "Acme", "alice", "admin-pass")
+	admin := ts.seedAdminUser(t, "alice", "admin-pass")
+	_ = admin
 
-	// Seed a regular user in the same tenant.
-	regularTenant, regular := ts.seedUserWithType(t, "Beta", "bob", "userpass", auth.UserTypeUser)
-	_ = regularTenant
-	bobToken := ts.login(t, regularTenant.ID, "bob", "userpass")
+	// Seed a regular user.
+	regular := ts.seedUserWithType(t, "bob", "userpass", auth.UserTypeUser)
+	bobToken := ts.login(t, "bob", "userpass")
 
 	// Bob (a 'user' role) tries to change someone else's password — must 403.
 	resp := ts.doJSON(t, http.MethodPatch,
-		"/api/v1/tenants/"+tenant.ID+"/users/"+regular.ID+"/password",
+		"/api/v1/users/"+regular.ID+"/password",
 		map[string]string{"password": "newpassword"},
 		bearer(bobToken), nil)
 	defer resp.Body.Close()

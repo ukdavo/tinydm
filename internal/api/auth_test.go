@@ -9,13 +9,12 @@ import (
 
 func TestLogin_Success(t *testing.T) {
 	ts := newTestServer(t)
-	tenant, _ := ts.seedAdminUser(t, "Acme", "alice", "secret123")
+	ts.seedAdminUser(t, "alice", "secret123")
 
 	var result map[string]any
 	resp := ts.doJSON(t, http.MethodPost, "/api/v1/auth/login", map[string]string{
-		"tenant_id": tenant.ID,
-		"username":  "alice",
-		"password":  "secret123",
+		"username": "alice",
+		"password": "secret123",
 	}, nil, &result)
 	defer resp.Body.Close()
 
@@ -27,9 +26,6 @@ func TestLogin_Success(t *testing.T) {
 	if result["username"] != "alice" {
 		t.Errorf("username: got %v, want alice", result["username"])
 	}
-	if result["tenant_id"] != tenant.ID {
-		t.Errorf("tenant_id: got %v, want %s", result["tenant_id"], tenant.ID)
-	}
 	if result["user_type"] != "admin" {
 		t.Errorf("user_type: got %v, want admin", result["user_type"])
 	}
@@ -37,12 +33,11 @@ func TestLogin_Success(t *testing.T) {
 
 func TestLogin_WrongPassword(t *testing.T) {
 	ts := newTestServer(t)
-	tenant, _ := ts.seedAdminUser(t, "Acme", "alice", "correct-password")
+	ts.seedAdminUser(t, "alice", "correct-password")
 
 	resp := ts.doJSON(t, http.MethodPost, "/api/v1/auth/login", map[string]string{
-		"tenant_id": tenant.ID,
-		"username":  "alice",
-		"password":  "wrong-password",
+		"username": "alice",
+		"password": "wrong-password",
 	}, nil, nil)
 	defer resp.Body.Close()
 
@@ -51,12 +46,11 @@ func TestLogin_WrongPassword(t *testing.T) {
 
 func TestLogin_UnknownUser(t *testing.T) {
 	ts := newTestServer(t)
-	tenant, _ := ts.seedAdminUser(t, "Acme", "alice", "secret")
+	ts.seedAdminUser(t, "alice", "secret")
 
 	resp := ts.doJSON(t, http.MethodPost, "/api/v1/auth/login", map[string]string{
-		"tenant_id": tenant.ID,
-		"username":  "nobody",
-		"password":  "secret",
+		"username": "nobody",
+		"password": "secret",
 	}, nil, nil)
 	defer resp.Body.Close()
 
@@ -70,9 +64,8 @@ func TestLogin_MissingFields(t *testing.T) {
 		name string
 		body map[string]string
 	}{
-		{"missing tenant_id", map[string]string{"username": "alice", "password": "x"}},
-		{"missing username", map[string]string{"tenant_id": "t1", "password": "x"}},
-		{"missing password", map[string]string{"tenant_id": "t1", "username": "alice"}},
+		{"missing username", map[string]string{"password": "x"}},
+		{"missing password", map[string]string{"username": "alice"}},
 		{"empty body", map[string]string{}},
 	}
 
@@ -89,8 +82,8 @@ func TestLogin_MissingFields(t *testing.T) {
 
 func TestMe_Authenticated(t *testing.T) {
 	ts := newTestServer(t)
-	tenant, _ := ts.seedAdminUser(t, "Acme", "alice", "secret123")
-	token := ts.login(t, tenant.ID, "alice", "secret123")
+	ts.seedAdminUser(t, "alice", "secret123")
+	token := ts.login(t, "alice", "secret123")
 
 	var result map[string]any
 	resp := ts.doJSON(t, http.MethodGet, "/api/v1/auth/me", nil, bearer(token), &result)
@@ -133,7 +126,7 @@ func TestProtectedRoutes_RequireAuth(t *testing.T) {
 		method string
 		path   string
 	}{
-		{http.MethodGet, "/api/v1/tenants"},
+		{http.MethodGet, "/api/v1/projects"},
 		{http.MethodGet, "/api/v1/auth/me"},
 	}
 

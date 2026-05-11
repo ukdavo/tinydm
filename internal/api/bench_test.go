@@ -28,9 +28,8 @@ import (
 // benchmark functions directly. Setup cost is excluded from b.N iterations by
 // calling b.ResetTimer() after seeding.
 type benchServer struct {
-	srv      *httptest.Server
-	token    string // pre-issued Bearer token for the seeded admin
-	tenantID string
+	srv       *httptest.Server
+	token     string // pre-issued Bearer token for the seeded admin
 	projectID string
 	bucketID  string
 	repoStore *repo.Store
@@ -76,12 +75,6 @@ func newBenchServer(b *testing.B) *benchServer {
 
 	ctx := context.Background()
 
-	// Seed: tenant
-	tenant, err := repoStore.CreateTenant(ctx, "bench-tenant", "benchmark tenant")
-	if err != nil {
-		b.Fatalf("CreateTenant: %v", err)
-	}
-
 	// Seed: admin user
 	hash, err := auth.HashPassword("bench-pass")
 	if err != nil {
@@ -100,7 +93,7 @@ func newBenchServer(b *testing.B) *benchServer {
 	}
 
 	// Seed: project and bucket
-	proj, err := repoStore.CreateProject(ctx, tenant.ID, "bench-project", "")
+	proj, err := repoStore.CreateProject(ctx, "bench-project", "")
 	if err != nil {
 		b.Fatalf("CreateProject: %v", err)
 	}
@@ -112,7 +105,6 @@ func newBenchServer(b *testing.B) *benchServer {
 	return &benchServer{
 		srv:       srv,
 		token:     token,
-		tenantID:  tenant.ID,
 		projectID: proj.ID,
 		bucketID:  bucket.ID,
 		repoStore: repoStore,
@@ -158,8 +150,8 @@ func (bs *benchServer) uploadBench(b *testing.B, filename string, content []byte
 	}
 	mw.Close()
 
-	path := fmt.Sprintf("/api/v1/tenants/%s/projects/%s/buckets/%s/documents",
-		bs.tenantID, bs.projectID, bs.bucketID)
+	path := fmt.Sprintf("/api/v1/projects/%s/buckets/%s/documents",
+		bs.projectID, bs.bucketID)
 	headers := map[string]string{
 		"Authorization": "Bearer " + bs.token,
 		"Content-Type":  mw.FormDataContentType(),
@@ -184,9 +176,8 @@ func (bs *benchServer) uploadBench(b *testing.B, filename string, content []byte
 func BenchmarkLogin(b *testing.B) {
 	bs := newBenchServer(b)
 	body := map[string]string{
-		"tenant_id": bs.tenantID,
-		"username":  "bench-admin",
-		"password":  "bench-pass",
+		"username": "bench-admin",
+		"password": "bench-pass",
 	}
 	bodyBytes, _ := json.Marshal(body)
 
@@ -225,8 +216,8 @@ func BenchmarkDocumentUpload(b *testing.B) {
 		b.Run(tc.label, func(b *testing.B) {
 			bs := newBenchServer(b)
 			payload := bytes.Repeat([]byte("u"), tc.bytes)
-			uploadPath := fmt.Sprintf("/api/v1/tenants/%s/projects/%s/buckets/%s/documents",
-				bs.tenantID, bs.projectID, bs.bucketID)
+			uploadPath := fmt.Sprintf("/api/v1/projects/%s/buckets/%s/documents",
+				bs.projectID, bs.bucketID)
 
 			b.SetBytes(int64(tc.bytes))
 			b.ReportAllocs()
@@ -284,8 +275,8 @@ func BenchmarkDocumentList(b *testing.B) {
 				bs.uploadBench(b, fmt.Sprintf("doc%d.txt", i), content)
 			}
 
-			listPath := fmt.Sprintf("/api/v1/tenants/%s/projects/%s/buckets/%s/documents",
-				bs.tenantID, bs.projectID, bs.bucketID)
+			listPath := fmt.Sprintf("/api/v1/projects/%s/buckets/%s/documents",
+				bs.projectID, bs.bucketID)
 
 			b.ReportAllocs()
 			b.ResetTimer()
@@ -325,8 +316,8 @@ func BenchmarkDocumentDownload(b *testing.B) {
 			payload := bytes.Repeat([]byte("d"), tc.bytes)
 			docID := bs.uploadBench(b, "bench.bin", payload)
 
-			downloadPath := fmt.Sprintf("/api/v1/tenants/%s/projects/%s/buckets/%s/documents/%s/content",
-				bs.tenantID, bs.projectID, bs.bucketID, docID)
+			downloadPath := fmt.Sprintf("/api/v1/projects/%s/buckets/%s/documents/%s/content",
+				bs.projectID, bs.bucketID, docID)
 
 			b.SetBytes(int64(tc.bytes))
 			b.ReportAllocs()

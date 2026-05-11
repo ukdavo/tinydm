@@ -23,7 +23,6 @@ const MaxLimit = 500
 // Event is a single immutable audit record.
 type Event struct {
 	ID        string `json:"id"`
-	TenantID  string `json:"tenant_id"`
 	Principal string `json:"principal"`
 	Action    string `json:"action"`
 	Resource  string `json:"resource"`
@@ -45,11 +44,11 @@ func NewStore(database *db.DB) *Store {
 
 // Record inserts a new audit event. It is designed to be called fire-and-forget:
 // a non-nil error should be logged but must not affect the request path.
-func (s *Store) Record(ctx context.Context, tenantID, principal, action, resource, detail string) error {
+func (s *Store) Record(ctx context.Context, principal, action, resource, detail string) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO audit_log (id, tenant_id, principal, action, resource, detail)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		uuid.New().String(), tenantID, principal, action, resource, detail,
+		`INSERT INTO audit_log (id, principal, action, resource, detail)
+		 VALUES (?, ?, ?, ?, ?)`,
+		uuid.New().String(), principal, action, resource, detail,
 	)
 	return err
 }
@@ -61,7 +60,6 @@ func (s *Store) Record(ctx context.Context, tenantID, principal, action, resourc
 // Action supports a trailing '*' wildcard (e.g. "document.*" matches all
 // document actions).
 type Filter struct {
-	TenantID  string // required
 	Principal string // exact match on username / API-key identifier
 	Action    string // exact match, or prefix match when ending with '*'
 	Resource  string // exact match on resource ID
@@ -83,8 +81,8 @@ func (s *Store) List(ctx context.Context, f Filter) ([]*Event, int, error) {
 		offset = 0
 	}
 
-	where := []string{"tenant_id = ?"}
-	args := []any{f.TenantID}
+	where := []string{"1=1"}
+	args := []any{}
 
 	if f.Principal != "" {
 		where = append(where, "principal = ?")
@@ -125,7 +123,7 @@ func (s *Store) List(ctx context.Context, f Filter) ([]*Event, int, error) {
 		return nil, 0, fmt.Errorf("count audit: %w", err)
 	}
 
-	query := `SELECT id, tenant_id, principal, action, resource, detail, created_at
+	query := `SELECT id, principal, action, resource, detail, created_at
 	          FROM audit_log
 	          WHERE ` + whereClause + `
 	          ORDER BY created_at DESC
@@ -141,7 +139,7 @@ func (s *Store) List(ctx context.Context, f Filter) ([]*Event, int, error) {
 	var out []*Event
 	for rows.Next() {
 		var e Event
-		if err := rows.Scan(&e.ID, &e.TenantID, &e.Principal,
+		if err := rows.Scan(&e.ID, &e.Principal,
 			&e.Action, &e.Resource, &e.Detail, &e.CreatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan audit event: %w", err)
 		}

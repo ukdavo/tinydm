@@ -2,16 +2,14 @@ package api_test
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"testing"
 
 	"tinydm/internal/auth"
 )
 
-// seedRegularUser creates a regular (non-admin) user in the given tenant and
-// returns a Bearer token for that user.
-func (ts *testServer) seedRegularUser(t *testing.T, tenantID, username, password string) string {
+// seedRegularUser creates a regular (non-admin) user and returns a Bearer token for that user.
+func (ts *testServer) seedRegularUser(t *testing.T, username, password string) string {
 	t.Helper()
 	ctx := context.Background()
 	hash, err := auth.HashPassword(password)
@@ -22,32 +20,32 @@ func (ts *testServer) seedRegularUser(t *testing.T, tenantID, username, password
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	return ts.login(t, tenantID, username, password)
+	return ts.login(t, username, password)
 }
 
 func TestPermissions_RegularUser_DeniedWithoutGrant(t *testing.T) {
 	ts := newTestServer(t)
-	tenant, _ := ts.seedAdminUser(t, "Acme", "admin", "pass")
-	adminToken := ts.login(t, tenant.ID, "admin", "pass")
-	userToken := ts.seedRegularUser(t, tenant.ID, "alice", "pass")
+	ts.seedAdminUser(t, "admin", "pass")
+	adminToken := ts.login(t, "admin", "pass")
+	userToken := ts.seedRegularUser(t, "alice", "pass")
 
 	// Admin creates a project.
 	var proj map[string]any
 	ts.doJSON(t, http.MethodPost,
-		fmt.Sprintf("/api/v1/tenants/%s/projects", tenant.ID),
+		"/api/v1/projects",
 		map[string]string{"name": "Alpha"}, bearer(adminToken), &proj)
 	projID := proj["id"].(string)
 
 	// Regular user must be denied listing projects (no right granted).
 	resp := ts.doJSON(t, http.MethodGet,
-		fmt.Sprintf("/api/v1/tenants/%s/projects", tenant.ID),
+		"/api/v1/projects",
 		nil, bearer(userToken), nil)
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusForbidden)
 
 	// Regular user must be denied creating a project.
 	resp2 := ts.doJSON(t, http.MethodPost,
-		fmt.Sprintf("/api/v1/tenants/%s/projects", tenant.ID),
+		"/api/v1/projects",
 		map[string]string{"name": "Sneaky"}, bearer(userToken), nil)
 	defer resp2.Body.Close()
 	assertStatus(t, resp2, http.StatusForbidden)
@@ -57,15 +55,15 @@ func TestPermissions_RegularUser_DeniedWithoutGrant(t *testing.T) {
 
 func TestPermissions_RegularUser_AllowedAfterGrant(t *testing.T) {
 	ts := newTestServer(t)
-	tenant, user := ts.seedAdminUser(t, "Acme", "admin", "pass")
-	adminToken := ts.login(t, tenant.ID, "admin", "pass")
+	user := ts.seedAdminUser(t, "admin", "pass")
+	adminToken := ts.login(t, "admin", "pass")
 	alice, _ := ts.authStore.CreateUser(context.Background(), "alice", "alice@test.local", "Alice", "Smith", mustHash(t, "pass"), auth.UserTypeUser)
-	aliceToken := ts.login(t, tenant.ID, "alice", "pass")
+	aliceToken := ts.login(t, "alice", "pass")
 
 	// Admin creates a project.
 	var proj map[string]any
 	ts.doJSON(t, http.MethodPost,
-		fmt.Sprintf("/api/v1/tenants/%s/projects", tenant.ID),
+		"/api/v1/projects",
 		map[string]string{"name": "Alpha"}, bearer(adminToken), &proj)
 	projID := proj["id"].(string)
 
@@ -81,7 +79,7 @@ func TestPermissions_RegularUser_AllowedAfterGrant(t *testing.T) {
 	// Alice should now be able to list projects.
 	var list map[string]any
 	resp := ts.doJSON(t, http.MethodGet,
-		fmt.Sprintf("/api/v1/tenants/%s/projects", tenant.ID),
+		"/api/v1/projects",
 		nil, bearer(aliceToken), &list)
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusOK)
@@ -92,12 +90,12 @@ func TestPermissions_RegularUser_AllowedAfterGrant(t *testing.T) {
 
 func TestPermissions_AdminBypassesRights(t *testing.T) {
 	ts := newTestServer(t)
-	tenant, _ := ts.seedAdminUser(t, "Acme", "admin", "pass")
-	adminToken := ts.login(t, tenant.ID, "admin", "pass")
+	ts.seedAdminUser(t, "admin", "pass")
+	adminToken := ts.login(t, "admin", "pass")
 
 	// Admin can list projects with no rights configured.
 	resp := ts.doJSON(t, http.MethodGet,
-		fmt.Sprintf("/api/v1/tenants/%s/projects", tenant.ID),
+		"/api/v1/projects",
 		nil, bearer(adminToken), nil)
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusOK)

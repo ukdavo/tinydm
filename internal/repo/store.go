@@ -16,19 +16,9 @@ import (
 
 // ─── Domain types ─────────────────────────────────────────────────────────────
 
-// Tenant is the top-level isolation boundary.
-type Tenant struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
-}
-
-// Project belongs to a Tenant.
+// Project is the top-level resource container.
 type Project struct {
 	ID          string `json:"id"`
-	TenantID    string `json:"tenant_id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	CreatedAt   string `json:"created_at"`
@@ -112,86 +102,13 @@ func (p PageOpts) validated() PageOpts {
 	return p
 }
 
-// ─── Tenants ──────────────────────────────────────────────────────────────────
-
-func (s *Store) CreateTenant(ctx context.Context, name, description string) (*Tenant, error) {
-	id := uuid.New().String()
-	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO tenants (id, name, description) VALUES (?, ?, ?)`,
-		id, name, description,
-	); err != nil {
-		return nil, wrapConstraint(err, "tenant", name)
-	}
-	return s.GetTenant(ctx, id)
-}
-
-func (s *Store) GetTenant(ctx context.Context, id string) (*Tenant, error) {
-	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, description, created_at, updated_at
-		 FROM tenants WHERE id = ? AND deleted_at IS NULL`, id)
-	return scanTenant(row)
-}
-
-// GetTenantByName looks up a tenant by its public display name (case-insensitive).
-// Returns nil, nil when no matching tenant exists.
-func (s *Store) GetTenantByName(ctx context.Context, name string) (*Tenant, error) {
-	row := s.db.QueryRowContext(ctx,
-		`SELECT id, name, description, created_at, updated_at
-		 FROM tenants WHERE lower(name) = lower(?) AND deleted_at IS NULL
-		 LIMIT 1`, name)
-	return scanTenant(row)
-}
-
-func (s *Store) ListTenants(ctx context.Context, page PageOpts) ([]*Tenant, int, error) {
-	page = page.validated()
-	var total int
-	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM tenants WHERE deleted_at IS NULL`).Scan(&total); err != nil {
-		return nil, 0, fmt.Errorf("count tenants: %w", err)
-	}
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, name, description, created_at, updated_at
-		 FROM tenants WHERE deleted_at IS NULL ORDER BY name
-		 LIMIT ? OFFSET ?`, page.Limit, page.Offset)
-	if err != nil {
-		return nil, 0, fmt.Errorf("list tenants: %w", err)
-	}
-	defer rows.Close()
-	var out []*Tenant
-	for rows.Next() {
-		var t Tenant
-		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.CreatedAt, &t.UpdatedAt); err != nil {
-			return nil, 0, fmt.Errorf("scan tenant: %w", err)
-		}
-		out = append(out, &t)
-	}
-	return out, total, rows.Err()
-}
-
-func (s *Store) UpdateTenant(ctx context.Context, id, name, description string) (*Tenant, error) {
-	if _, err := s.db.ExecContext(ctx,
-		`UPDATE tenants SET name=?, description=?, updated_at=CURRENT_TIMESTAMP
-		 WHERE id=? AND deleted_at IS NULL`,
-		name, description, id,
-	); err != nil {
-		return nil, wrapConstraint(err, "tenant", name)
-	}
-	return s.GetTenant(ctx, id)
-}
-
-func (s *Store) DeleteTenant(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE tenants SET deleted_at=CURRENT_TIMESTAMP WHERE id=?`, id)
-	return err
-}
-
 // ─── Projects ─────────────────────────────────────────────────────────────────
 
-func (s *Store) CreateProject(ctx context.Context, tenantID, name, description string) (*Project, error) {
+func (s *Store) CreateProject(ctx context.Context, name, description string) (*Project, error) {
 	id := uuid.New().String()
 	if _, err := s.db.ExecContext(ctx,
-		`INSERT INTO projects (id, tenant_id, name, description) VALUES (?, ?, ?, ?)`,
-		id, tenantID, name, description,
+		`INSERT INTO projects (id, name, description) VALUES (?, ?, ?)`,
+		id, name, description,
 	); err != nil {
 		return nil, wrapConstraint(err, "project", name)
 	}
@@ -200,22 +117,22 @@ func (s *Store) CreateProject(ctx context.Context, tenantID, name, description s
 
 func (s *Store) GetProject(ctx context.Context, id string) (*Project, error) {
 	row := s.db.QueryRowContext(ctx,
-		`SELECT id, tenant_id, name, description, created_at, updated_at
+		`SELECT id, name, description, created_at, updated_at
 		 FROM projects WHERE id=? AND deleted_at IS NULL`, id)
 	return scanProject(row)
 }
 
-func (s *Store) ListProjects(ctx context.Context, tenantID string, page PageOpts) ([]*Project, int, error) {
+func (s *Store) ListProjects(ctx context.Context, page PageOpts) ([]*Project, int, error) {
 	page = page.validated()
 	var total int
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM projects WHERE tenant_id=? AND deleted_at IS NULL`, tenantID).Scan(&total); err != nil {
+		`SELECT COUNT(*) FROM projects WHERE deleted_at IS NULL`).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count projects: %w", err)
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, tenant_id, name, description, created_at, updated_at
-		 FROM projects WHERE tenant_id=? AND deleted_at IS NULL ORDER BY name
-		 LIMIT ? OFFSET ?`, tenantID, page.Limit, page.Offset)
+		`SELECT id, name, description, created_at, updated_at
+		 FROM projects WHERE deleted_at IS NULL ORDER BY name
+		 LIMIT ? OFFSET ?`, page.Limit, page.Offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list projects: %w", err)
 	}
@@ -223,7 +140,7 @@ func (s *Store) ListProjects(ctx context.Context, tenantID string, page PageOpts
 	var out []*Project
 	for rows.Next() {
 		var p Project
-		if err := rows.Scan(&p.ID, &p.TenantID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, 0, fmt.Errorf("scan project: %w", err)
 		}
 		out = append(out, &p)
@@ -580,20 +497,9 @@ func wrapConstraint(err error, resource, name string) error {
 	return err
 }
 
-func scanTenant(row *sql.Row) (*Tenant, error) {
-	var t Tenant
-	if err := row.Scan(&t.ID, &t.Name, &t.Description, &t.CreatedAt, &t.UpdatedAt); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("scan tenant: %w", err)
-	}
-	return &t, nil
-}
-
 func scanProject(row *sql.Row) (*Project, error) {
 	var p Project
-	if err := row.Scan(&p.ID, &p.TenantID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt); err != nil {
+	if err := row.Scan(&p.ID, &p.Name, &p.Description, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}

@@ -135,13 +135,12 @@ func (ts *testServer) doJSON(t *testing.T, method, path string, reqBody any, hea
 }
 
 // login authenticates as the given user and returns a Bearer token.
-func (ts *testServer) login(t *testing.T, tenantID, username, password string) string {
+func (ts *testServer) login(t *testing.T, username, password string) string {
 	t.Helper()
 	var result map[string]any
 	resp := ts.doJSON(t, http.MethodPost, "/api/v1/auth/login", map[string]string{
-		"tenant_id": tenantID,
-		"username":  username,
-		"password":  password,
+		"username": username,
+		"password": password,
 	}, nil, &result)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -159,29 +158,16 @@ func bearer(token string) map[string]string {
 	return map[string]string{"Authorization": "Bearer " + token}
 }
 
-// seedAdminUser creates a tenant and a domain admin user in the DB.
-func (ts *testServer) seedAdminUser(t *testing.T, tenantName, username, password string) (*repo.Tenant, *auth.User) {
+// seedAdminUser creates an admin user in the DB and returns the user.
+func (ts *testServer) seedAdminUser(t *testing.T, username, password string) *auth.User {
 	t.Helper()
-	return ts.seedUserWithType(t, tenantName, username, password, auth.UserTypeAdmin)
+	return ts.seedUserWithType(t, username, password, auth.UserTypeAdmin)
 }
 
-// seedSuperadminUser creates a tenant and a superadmin user in the DB.
-// Use this for tests that exercise routes requiring superadmin access
-// (tenant create/update/delete).
-func (ts *testServer) seedSuperadminUser(t *testing.T, tenantName, username, password string) (*repo.Tenant, *auth.User) {
-	t.Helper()
-	return ts.seedUserWithType(t, tenantName, username, password, auth.UserTypeAdmin)
-}
-
-// seedUserWithType is the shared implementation for seedAdminUser and seedSuperadminUser.
-func (ts *testServer) seedUserWithType(t *testing.T, tenantName, username, password string, userType auth.UserType) (*repo.Tenant, *auth.User) {
+// seedUserWithType is the shared implementation for seeding users.
+func (ts *testServer) seedUserWithType(t *testing.T, username, password string, userType auth.UserType) *auth.User {
 	t.Helper()
 	ctx := context.Background()
-
-	tenant, err := ts.repoStore.CreateTenant(ctx, tenantName, "test tenant")
-	if err != nil {
-		t.Fatalf("CreateTenant: %v", err)
-	}
 
 	hash, err := auth.HashPassword(password)
 	if err != nil {
@@ -191,12 +177,12 @@ func (ts *testServer) seedUserWithType(t *testing.T, tenantName, username, passw
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	return tenant, user
+	return user
 }
 
 // uploadFile posts a multipart file upload to the documents endpoint and
 // returns the decoded document JSON map.
-func (ts *testServer) uploadFile(t *testing.T, token, tenantID, projectID, bucketID, filename string, content []byte) map[string]any {
+func (ts *testServer) uploadFile(t *testing.T, token, projectID, bucketID, filename string, content []byte) map[string]any {
 	t.Helper()
 
 	var buf bytes.Buffer
@@ -210,8 +196,8 @@ func (ts *testServer) uploadFile(t *testing.T, token, tenantID, projectID, bucke
 	}
 	mw.Close()
 
-	path := fmt.Sprintf("/api/v1/tenants/%s/projects/%s/buckets/%s/documents",
-		tenantID, projectID, bucketID)
+	path := fmt.Sprintf("/api/v1/projects/%s/buckets/%s/documents",
+		projectID, bucketID)
 	resp := ts.do(t, http.MethodPost, path, &buf, map[string]string{
 		"Authorization": "Bearer " + token,
 		"Content-Type":  mw.FormDataContentType(),

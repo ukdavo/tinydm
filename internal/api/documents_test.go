@@ -9,49 +9,48 @@ import (
 	"testing"
 )
 
-// scaffold creates a tenant/project/bucket and returns their IDs along with
+// scaffold creates a project/bucket and returns their IDs along with
 // an admin bearer token — ready for document operations.
-func scaffold(t *testing.T, ts *testServer) (tenantID, projID, bucketID, token string) {
+func scaffold(t *testing.T, ts *testServer) (projID, bucketID, token string) {
 	t.Helper()
 
-	tenant, _ := ts.seedAdminUser(t, "DocTenant", "admin", "pass")
-	token = ts.login(t, tenant.ID, "admin", "pass")
-	tenantID = tenant.ID
+	ts.seedAdminUser(t, "admin", "pass")
+	token = ts.login(t, "admin", "pass")
 
 	var proj map[string]any
 	ts.doJSON(t, http.MethodPost,
-		fmt.Sprintf("/api/v1/tenants/%s/projects", tenantID),
+		"/api/v1/projects",
 		map[string]string{"name": "MyProject"}, bearer(token), &proj)
 	projID = proj["id"].(string)
 
 	var bucket map[string]any
 	ts.doJSON(t, http.MethodPost,
-		fmt.Sprintf("/api/v1/tenants/%s/projects/%s/buckets", tenantID, projID),
+		fmt.Sprintf("/api/v1/projects/%s/buckets", projID),
 		map[string]string{"name": "MyBucket"}, bearer(token), &bucket)
 	bucketID = bucket["id"].(string)
 
-	return tenantID, projID, bucketID, token
+	return projID, bucketID, token
 }
 
 // docsPath returns the base documents path for a bucket.
-func docsPath(tenantID, projID, bucketID string) string {
-	return fmt.Sprintf("/api/v1/tenants/%s/projects/%s/buckets/%s/documents",
-		tenantID, projID, bucketID)
+func docsPath(projID, bucketID string) string {
+	return fmt.Sprintf("/api/v1/projects/%s/buckets/%s/documents",
+		projID, bucketID)
 }
 
 // docPath returns the path for a specific document.
-func docPath(tenantID, projID, bucketID, docID string) string {
-	return docsPath(tenantID, projID, bucketID) + "/" + docID
+func docPath(projID, bucketID, docID string) string {
+	return docsPath(projID, bucketID) + "/" + docID
 }
 
 // ─── Upload / Download / Delete ───────────────────────────────────────────────
 
 func TestDocuments_UploadAndList(t *testing.T) {
 	ts := newTestServer(t)
-	tid, pid, bid, token := scaffold(t, ts)
+	pid, bid, token := scaffold(t, ts)
 
 	content := []byte("hello, world")
-	doc := ts.uploadFile(t, token, tid, pid, bid, "hello.txt", content)
+	doc := ts.uploadFile(t, token, pid, bid, "hello.txt", content)
 
 	if doc["id"] == nil {
 		t.Error("expected id in uploaded document")
@@ -65,7 +64,7 @@ func TestDocuments_UploadAndList(t *testing.T) {
 
 	// List documents — should include the uploaded file.
 	var list map[string]any
-	resp := ts.doJSON(t, http.MethodGet, docsPath(tid, pid, bid), nil, bearer(token), &list)
+	resp := ts.doJSON(t, http.MethodGet, docsPath(pid, bid), nil, bearer(token), &list)
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusOK)
 
@@ -77,14 +76,14 @@ func TestDocuments_UploadAndList(t *testing.T) {
 
 func TestDocuments_Download(t *testing.T) {
 	ts := newTestServer(t)
-	tid, pid, bid, token := scaffold(t, ts)
+	pid, bid, token := scaffold(t, ts)
 
 	original := []byte("download me")
-	doc := ts.uploadFile(t, token, tid, pid, bid, "get.txt", original)
+	doc := ts.uploadFile(t, token, pid, bid, "get.txt", original)
 	docID := doc["id"].(string)
 
 	resp := ts.do(t, http.MethodGet,
-		docPath(tid, pid, bid, docID)+"/content",
+		docPath(pid, bid, docID)+"/content",
 		nil, bearer(token))
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusOK)
@@ -100,14 +99,14 @@ func TestDocuments_Download(t *testing.T) {
 
 func TestDocuments_Get(t *testing.T) {
 	ts := newTestServer(t)
-	tid, pid, bid, token := scaffold(t, ts)
+	pid, bid, token := scaffold(t, ts)
 
-	doc := ts.uploadFile(t, token, tid, pid, bid, "meta.txt", []byte("content"))
+	doc := ts.uploadFile(t, token, pid, bid, "meta.txt", []byte("content"))
 	docID := doc["id"].(string)
 
 	var fetched map[string]any
 	resp := ts.doJSON(t, http.MethodGet,
-		docPath(tid, pid, bid, docID),
+		docPath(pid, bid, docID),
 		nil, bearer(token), &fetched)
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusOK)
@@ -122,20 +121,20 @@ func TestDocuments_Get(t *testing.T) {
 
 func TestDocuments_Delete(t *testing.T) {
 	ts := newTestServer(t)
-	tid, pid, bid, token := scaffold(t, ts)
+	pid, bid, token := scaffold(t, ts)
 
-	doc := ts.uploadFile(t, token, tid, pid, bid, "bye.txt", []byte("goodbye"))
+	doc := ts.uploadFile(t, token, pid, bid, "bye.txt", []byte("goodbye"))
 	docID := doc["id"].(string)
 
 	resp := ts.do(t, http.MethodDelete,
-		docPath(tid, pid, bid, docID),
+		docPath(pid, bid, docID),
 		nil, bearer(token))
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusNoContent)
 
 	// Should now be gone.
 	resp2 := ts.do(t, http.MethodGet,
-		docPath(tid, pid, bid, docID),
+		docPath(pid, bid, docID),
 		nil, bearer(token))
 	defer resp2.Body.Close()
 	assertStatus(t, resp2, http.StatusNotFound)
@@ -143,10 +142,10 @@ func TestDocuments_Delete(t *testing.T) {
 
 func TestDocuments_Download_NotFound(t *testing.T) {
 	ts := newTestServer(t)
-	tid, pid, bid, token := scaffold(t, ts)
+	pid, bid, token := scaffold(t, ts)
 
 	resp := ts.do(t, http.MethodGet,
-		docsPath(tid, pid, bid)+"/does-not-exist/content",
+		docsPath(pid, bid)+"/does-not-exist/content",
 		nil, bearer(token))
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusNotFound)
@@ -156,15 +155,15 @@ func TestDocuments_Download_NotFound(t *testing.T) {
 
 func TestDocuments_Search(t *testing.T) {
 	ts := newTestServer(t)
-	tid, pid, bid, token := scaffold(t, ts)
+	pid, bid, token := scaffold(t, ts)
 
-	ts.uploadFile(t, token, tid, pid, bid, "report-2024.txt", []byte("a"))
-	ts.uploadFile(t, token, tid, pid, bid, "invoice-2024.txt", []byte("b"))
-	ts.uploadFile(t, token, tid, pid, bid, "readme.md", []byte("c"))
+	ts.uploadFile(t, token, pid, bid, "report-2024.txt", []byte("a"))
+	ts.uploadFile(t, token, pid, bid, "invoice-2024.txt", []byte("b"))
+	ts.uploadFile(t, token, pid, bid, "readme.md", []byte("c"))
 
 	var result map[string]any
 	resp := ts.doJSON(t, http.MethodGet,
-		docsPath(tid, pid, bid)+"?q=2024",
+		docsPath(pid, bid)+"?q=2024",
 		nil, bearer(token), &result)
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusOK)
@@ -179,11 +178,11 @@ func TestDocuments_Search(t *testing.T) {
 
 func TestDocuments_Tags(t *testing.T) {
 	ts := newTestServer(t)
-	tid, pid, bid, token := scaffold(t, ts)
+	pid, bid, token := scaffold(t, ts)
 
-	doc := ts.uploadFile(t, token, tid, pid, bid, "tagged.txt", []byte("content"))
+	doc := ts.uploadFile(t, token, pid, bid, "tagged.txt", []byte("content"))
 	docID := doc["id"].(string)
-	tagBase := docPath(tid, pid, bid, docID) + "/tags"
+	tagBase := docPath(pid, bid, docID) + "/tags"
 
 	// Add a tag.
 	resp := ts.do(t, http.MethodPost, tagBase+"/important", nil, bearer(token))
@@ -220,24 +219,24 @@ func TestDocuments_Tags(t *testing.T) {
 
 func TestDocuments_TagFilter(t *testing.T) {
 	ts := newTestServer(t)
-	tid, pid, bid, token := scaffold(t, ts)
+	pid, bid, token := scaffold(t, ts)
 
-	d1 := ts.uploadFile(t, token, tid, pid, bid, "a.txt", []byte("a"))
-	d2 := ts.uploadFile(t, token, tid, pid, bid, "b.txt", []byte("b"))
+	d1 := ts.uploadFile(t, token, pid, bid, "a.txt", []byte("a"))
+	d2 := ts.uploadFile(t, token, pid, bid, "b.txt", []byte("b"))
 
 	// Tag only d1.
 	ts.do(t, http.MethodPost,
-		docPath(tid, pid, bid, d1["id"].(string))+"/tags/featured",
+		docPath(pid, bid, d1["id"].(string))+"/tags/featured",
 		nil, bearer(token))
 
 	// d2 gets a different tag.
 	ts.do(t, http.MethodPost,
-		docPath(tid, pid, bid, d2["id"].(string))+"/tags/archived",
+		docPath(pid, bid, d2["id"].(string))+"/tags/archived",
 		nil, bearer(token))
 
 	var result map[string]any
 	resp := ts.doJSON(t, http.MethodGet,
-		docsPath(tid, pid, bid)+"?tag=featured",
+		docsPath(pid, bid)+"?tag=featured",
 		nil, bearer(token), &result)
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusOK)
@@ -252,11 +251,11 @@ func TestDocuments_TagFilter(t *testing.T) {
 
 func TestDocuments_Properties(t *testing.T) {
 	ts := newTestServer(t)
-	tid, pid, bid, token := scaffold(t, ts)
+	pid, bid, token := scaffold(t, ts)
 
-	doc := ts.uploadFile(t, token, tid, pid, bid, "props.txt", []byte("content"))
+	doc := ts.uploadFile(t, token, pid, bid, "props.txt", []byte("content"))
 	docID := doc["id"].(string)
-	propBase := docPath(tid, pid, bid, docID) + "/properties"
+	propBase := docPath(pid, bid, docID) + "/properties"
 
 	// Set a property.
 	resp := ts.doJSON(t, http.MethodPut, propBase+"/author",
@@ -292,10 +291,10 @@ func TestDocuments_Properties(t *testing.T) {
 
 func TestDocuments_Versions(t *testing.T) {
 	ts := newTestServer(t)
-	tid, pid, bid, token := scaffold(t, ts)
+	pid, bid, token := scaffold(t, ts)
 
 	// Upload initial version.
-	doc := ts.uploadFile(t, token, tid, pid, bid, "versioned.txt", []byte("version 1"))
+	doc := ts.uploadFile(t, token, pid, bid, "versioned.txt", []byte("version 1"))
 	docID := doc["id"].(string)
 
 	// Update (replace content) — creates a snapshot.
@@ -306,7 +305,7 @@ func TestDocuments_Versions(t *testing.T) {
 	mw.Close()
 
 	updateResp := ts.do(t, http.MethodPut,
-		docPath(tid, pid, bid, docID),
+		docPath(pid, bid, docID),
 		&buf, map[string]string{
 			"Authorization": "Bearer " + token,
 			"Content-Type":  mw.FormDataContentType(),
@@ -317,7 +316,7 @@ func TestDocuments_Versions(t *testing.T) {
 	// List versions — should have one snapshot (v1).
 	var versions map[string]any
 	resp := ts.doJSON(t, http.MethodGet,
-		docPath(tid, pid, bid, docID)+"/versions",
+		docPath(pid, bid, docID)+"/versions",
 		nil, bearer(token), &versions)
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusOK)
@@ -329,7 +328,7 @@ func TestDocuments_Versions(t *testing.T) {
 
 	// Confirm current content is v2.
 	downloadResp := ts.do(t, http.MethodGet,
-		docPath(tid, pid, bid, docID)+"/content",
+		docPath(pid, bid, docID)+"/content",
 		nil, bearer(token))
 	defer downloadResp.Body.Close()
 	current, _ := io.ReadAll(downloadResp.Body)
@@ -340,10 +339,10 @@ func TestDocuments_Versions(t *testing.T) {
 
 func TestDocuments_RestoreVersion(t *testing.T) {
 	ts := newTestServer(t)
-	tid, pid, bid, token := scaffold(t, ts)
+	pid, bid, token := scaffold(t, ts)
 
 	// v1 upload.
-	doc := ts.uploadFile(t, token, tid, pid, bid, "restore.txt", []byte("original content"))
+	doc := ts.uploadFile(t, token, pid, bid, "restore.txt", []byte("original content"))
 	docID := doc["id"].(string)
 
 	// v2 update.
@@ -354,7 +353,7 @@ func TestDocuments_RestoreVersion(t *testing.T) {
 	mw.Close()
 
 	ts.do(t, http.MethodPut,
-		docPath(tid, pid, bid, docID),
+		docPath(pid, bid, docID),
 		&buf, map[string]string{
 			"Authorization": "Bearer " + token,
 			"Content-Type":  mw.FormDataContentType(),
@@ -363,7 +362,7 @@ func TestDocuments_RestoreVersion(t *testing.T) {
 	// Get version list.
 	var versions map[string]any
 	ts.doJSON(t, http.MethodGet,
-		docPath(tid, pid, bid, docID)+"/versions",
+		docPath(pid, bid, docID)+"/versions",
 		nil, bearer(token), &versions)
 
 	versionData := versions["data"].([]any)
@@ -375,14 +374,14 @@ func TestDocuments_RestoreVersion(t *testing.T) {
 
 	// Restore v1.
 	restoreResp := ts.do(t, http.MethodPost,
-		docPath(tid, pid, bid, docID)+"/versions/"+versionID+"/restore",
+		docPath(pid, bid, docID)+"/versions/"+versionID+"/restore",
 		nil, bearer(token))
 	defer restoreResp.Body.Close()
 	assertStatus(t, restoreResp, http.StatusOK)
 
 	// Verify restored content matches v1.
 	dlResp := ts.do(t, http.MethodGet,
-		docPath(tid, pid, bid, docID)+"/content",
+		docPath(pid, bid, docID)+"/content",
 		nil, bearer(token))
 	defer dlResp.Body.Close()
 	restored, _ := io.ReadAll(dlResp.Body)
@@ -395,18 +394,18 @@ func TestDocuments_RestoreVersion(t *testing.T) {
 
 func TestDocuments_Pagination(t *testing.T) {
 	ts := newTestServer(t)
-	tid, pid, bid, token := scaffold(t, ts)
+	pid, bid, token := scaffold(t, ts)
 
 	// Upload 5 documents.
 	for i := 0; i < 5; i++ {
-		ts.uploadFile(t, token, tid, pid, bid,
+		ts.uploadFile(t, token, pid, bid,
 			fmt.Sprintf("doc-%02d.txt", i), []byte("x"))
 	}
 
 	// Request only 2.
 	var page1 map[string]any
 	resp := ts.doJSON(t, http.MethodGet,
-		docsPath(tid, pid, bid)+"?limit=2&offset=0",
+		docsPath(pid, bid)+"?limit=2&offset=0",
 		nil, bearer(token), &page1)
 	defer resp.Body.Close()
 	assertStatus(t, resp, http.StatusOK)
@@ -427,7 +426,7 @@ func TestDocuments_Pagination(t *testing.T) {
 	// Last page.
 	var page3 map[string]any
 	resp2 := ts.doJSON(t, http.MethodGet,
-		docsPath(tid, pid, bid)+"?limit=2&offset=4",
+		docsPath(pid, bid)+"?limit=2&offset=4",
 		nil, bearer(token), &page3)
 	defer resp2.Body.Close()
 

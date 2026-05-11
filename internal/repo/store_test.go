@@ -22,18 +22,9 @@ func newTestStore(t *testing.T) (*repo.Store, *db.DB) {
 	return repo.NewStore(sqlDB), sqlDB
 }
 
-func seedTenant(t *testing.T, s *repo.Store, name string) *repo.Tenant {
+func seedProject(t *testing.T, s *repo.Store, name string) *repo.Project {
 	t.Helper()
-	tenant, err := s.CreateTenant(context.Background(), name, "")
-	if err != nil {
-		t.Fatalf("CreateTenant %q: %v", name, err)
-	}
-	return tenant
-}
-
-func seedProject(t *testing.T, s *repo.Store, tenantID, name string) *repo.Project {
-	t.Helper()
-	p, err := s.CreateProject(context.Background(), tenantID, name, "")
+	p, err := s.CreateProject(context.Background(), name, "")
 	if err != nil {
 		t.Fatalf("CreateProject %q: %v", name, err)
 	}
@@ -52,9 +43,8 @@ func seedBucket(t *testing.T, s *repo.Store, projectID, name string) *repo.Bucke
 func TestCountBucketsInProject_ReturnsCorrectCount(t *testing.T) {
 	ctx := context.Background()
 	s, _ := newTestStore(t)
-	tenant := seedTenant(t, s, "acme")
-	p1 := seedProject(t, s, tenant.ID, "alpha")
-	p2 := seedProject(t, s, tenant.ID, "beta")
+	p1 := seedProject(t, s, "alpha")
+	p2 := seedProject(t, s, "beta")
 	seedBucket(t, s, p1.ID, "b1")
 	seedBucket(t, s, p1.ID, "b2")
 	seedBucket(t, s, p2.ID, "b3")
@@ -71,8 +61,7 @@ func TestCountBucketsInProject_ReturnsCorrectCount(t *testing.T) {
 func TestCountDocumentsInProject_ReturnsZeroForEmptyProject(t *testing.T) {
 	ctx := context.Background()
 	s, _ := newTestStore(t)
-	tenant := seedTenant(t, s, "acme")
-	p1 := seedProject(t, s, tenant.ID, "alpha")
+	p1 := seedProject(t, s, "alpha")
 
 	n, err := s.CountDocumentsInProject(ctx, p1.ID)
 	if err != nil {
@@ -86,9 +75,8 @@ func TestCountDocumentsInProject_ReturnsZeroForEmptyProject(t *testing.T) {
 func TestCountDocumentsInProject_CountsDocumentsAcrossBuckets(t *testing.T) {
 	ctx := context.Background()
 	s, sqlDB := newTestStore(t)
-	tenant := seedTenant(t, s, "acme")
-	p1 := seedProject(t, s, tenant.ID, "alpha")
-	p2 := seedProject(t, s, tenant.ID, "beta")
+	p1 := seedProject(t, s, "alpha")
+	p2 := seedProject(t, s, "beta")
 	b1 := seedBucket(t, s, p1.ID, "bkt1")
 	b2 := seedBucket(t, s, p1.ID, "bkt2")
 	b3 := seedBucket(t, s, p2.ID, "bkt3")
@@ -131,8 +119,7 @@ func TestCountDocumentsInProject_CountsDocumentsAcrossBuckets(t *testing.T) {
 func TestSumDocumentSizeInBucket_ReturnsZeroForEmptyBucket(t *testing.T) {
 	ctx := context.Background()
 	s, _ := newTestStore(t)
-	tenant := seedTenant(t, s, "acme")
-	p := seedProject(t, s, tenant.ID, "alpha")
+	p := seedProject(t, s, "alpha")
 	b := seedBucket(t, s, p.ID, "bkt")
 
 	total, err := s.SumDocumentSizeInBucket(ctx, b.ID)
@@ -147,8 +134,7 @@ func TestSumDocumentSizeInBucket_ReturnsZeroForEmptyBucket(t *testing.T) {
 func TestSumDocumentSizeInBucket_ReturnsTotalSize(t *testing.T) {
 	ctx := context.Background()
 	s, sqlDB := newTestStore(t)
-	tenant := seedTenant(t, s, "acme")
-	p := seedProject(t, s, tenant.ID, "alpha")
+	p := seedProject(t, s, "alpha")
 	b := seedBucket(t, s, p.ID, "bkt")
 
 	// Insert two documents with known sizes.

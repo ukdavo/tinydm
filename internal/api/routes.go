@@ -57,13 +57,15 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 			r.With(auth.RequireAdmin).Post("/apikeys", userHandler.CreateAPIKey)
 			r.With(auth.RequireAdmin).Post("/apikeys/{keyID}/revoke", userHandler.RevokeAPIKey)
 
-			r.Use(RightsCtx(authStore))
+			// Projects, buckets, and documents — RBAC-gated via RightsCtx
+			r.Group(func(r chi.Router) {
+				r.Use(RightsCtx(authStore))
 
-			// Projects
-			r.With(CanMiddleware(mode, auth.ActionRead, auth.ResourceProject,
-				nil, nil)).Get("/projects", projectHandler.List)
-			r.With(CanMiddleware(mode, auth.ActionCreate, auth.ResourceProject,
-				nil, nil)).Post("/projects", projectHandler.Create)
+				// Projects
+				r.With(CanMiddleware(mode, auth.ActionRead, auth.ResourceProject,
+					nil, nil)).Get("/projects", projectHandler.List)
+				r.With(CanMiddleware(mode, auth.ActionCreate, auth.ResourceProject,
+					nil, nil)).Post("/projects", projectHandler.Create)
 
 			r.Route("/projects/{projectID}", func(r chi.Router) {
 				r.Use(ProjectCtx(repoStore))
@@ -252,7 +254,8 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 							})).Delete("/properties/{key}", propHandler.Delete)
 					})
 				})
-			})
+			}) // end r.Route("/projects/{projectID}")
+			}) // end r.Group (RightsCtx)
 		})
 	})
 

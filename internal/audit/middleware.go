@@ -48,7 +48,7 @@ func Middleware(store *Store) func(http.Handler) http.Handler {
 			// Fire and forget — a failed audit write must not surface to the caller.
 			go func() {
 				if err := store.Record(context.Background(),
-					"", p.Username, action, resource, ""); err != nil {
+					p.Username, action, resource, ""); err != nil {
 					slog.Warn("audit: failed to record event",
 						"action", action,
 						"resource", resource,

@@ -30,8 +30,8 @@ const webTestJWTSecret = "web-test-secret"
 
 // newWebServer spins up a fully-wired web handler backed by an isolated
 // in-memory SQLite DB. Returns the server, auth store, repo store, seeded
-// tenant, seeded user, and a session cookie value (JWT) for that user.
-func newWebServer(t *testing.T) (*httptest.Server, *auth.Store, *repo.Store, *repo.Tenant, *auth.User, string) {
+// user, and a session cookie value (JWT) for that user.
+func newWebServer(t *testing.T) (*httptest.Server, *auth.Store, *repo.Store, *auth.User, string) {
 	t.Helper()
 
 	tmpDir := t.TempDir()
@@ -58,10 +58,6 @@ func newWebServer(t *testing.T) (*httptest.Server, *auth.Store, *repo.Store, *re
 	}
 
 	ctx := context.Background()
-	tenant, err := repoStore.CreateTenant(ctx, "Test", "test tenant")
-	if err != nil {
-		t.Fatalf("CreateTenant: %v", err)
-	}
 	hash, _ := auth.HashPassword("adminpass")
 	user, err := authStore.CreateUser(ctx, "alice", "alice@test.local", "Alice", "Smith", hash, auth.UserTypeAdmin)
 	if err != nil {
@@ -79,7 +75,7 @@ func newWebServer(t *testing.T) (*httptest.Server, *auth.Store, *repo.Store, *re
 
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
-	return srv, authStore, repoStore, tenant, user, token
+	return srv, authStore, repoStore, user, token
 }
 
 // sessionReq builds a request with the session cookie set.
@@ -93,13 +89,11 @@ func sessionReq(t *testing.T, method, rawURL, token string, body io.Reader) *htt
 	return req
 }
 
-// TestAuditLog_ScopedToTenant verifies that GET /admin/tenants/{tenantID}/audit
-// returns a 200 for the user's own tenant and that the page exists at the
-// tenant-scoped URL (not the old global /admin/audit).
-func TestAuditLog_ScopedToTenant(t *testing.T) {
-	srv, _, _, tenant, _, token := newWebServer(t)
+// TestAuditLog_Renders verifies that GET /admin/audit returns 200.
+func TestAuditLog_Renders(t *testing.T) {
+	srv, _, _, _, token := newWebServer(t)
 
-	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/tenants/"+tenant.ID+"/audit", token, nil)
+	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/audit", token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET audit: %v", err)
@@ -111,44 +105,26 @@ func TestAuditLog_ScopedToTenant(t *testing.T) {
 	}
 }
 
-// TestAuditLog_GlobalRouteGone verifies the old /admin/audit route no longer exists.
+// TestAuditLog_GlobalRouteGone verifies the old /admin/tenants route no longer exists.
 func TestAuditLog_GlobalRouteGone(t *testing.T) {
-	srv, _, _, _, _, token := newWebServer(t)
+	srv, _, _, _, token := newWebServer(t)
 
-	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/audit", token, nil)
+	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/tenants", token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("GET /admin/audit: %v", err)
+		t.Fatalf("GET /admin/tenants: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
-		t.Errorf("expected /admin/audit to be gone (not 200), got %d", resp.StatusCode)
-	}
-}
-
-// TestAuditLog_CrossTenantForbidden verifies an admin cannot view another tenant's audit log.
-func TestAuditLog_CrossTenantForbidden(t *testing.T) {
-	srv, _, _, _, _, token := newWebServer(t)
-
-	// Use a plausible-but-wrong tenant ID; the handler must reject it.
-	fakeID := "00000000-0000-0000-0000-000000000000"
-	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/tenants/"+fakeID+"/audit", token, nil)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET cross-tenant audit: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusOK {
-		t.Errorf("expected non-200 for cross-tenant audit, got %d", resp.StatusCode)
+		t.Errorf("expected /admin/tenants to be gone (not 200), got %d", resp.StatusCode)
 	}
 }
 
 // TestPasswordForm_ReturnsInputFragment verifies that GET /admin/users/{id}/password-form
 // returns an HTML fragment containing a password input for the user.
 func TestPasswordForm_ReturnsInputFragment(t *testing.T) {
-	srv, _, _, _, user, token := newWebServer(t)
+	srv, _, _, user, token := newWebServer(t)
 
 	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/users/"+user.ID+"/password-form", token, nil)
 	resp, err := http.DefaultClient.Do(req)
@@ -178,7 +154,7 @@ func TestPasswordForm_ReturnsInputFragment(t *testing.T) {
 // TestPasswordChange_Web_ReturnsUserRow verifies that POST /admin/users/{id}/password
 // returns the refreshed user-row HTML so HTMX can swap the form row back.
 func TestPasswordChange_Web_ReturnsUserRow(t *testing.T) {
-	srv, _, _, _, user, token := newWebServer(t)
+	srv, _, _, user, token := newWebServer(t)
 
 	form := url.Values{"password": {"newpassword"}}
 	req := sessionReq(t, http.MethodPost, srv.URL+"/admin/users/"+user.ID+"/password", token,
@@ -209,30 +185,11 @@ func TestPasswordChange_Web_ReturnsUserRow(t *testing.T) {
 	}
 }
 
-// TestTenantsPage_Renders verifies that GET /admin/tenants returns 200 and
-// renders without template errors.
-func TestTenantsPage_Renders(t *testing.T) {
-	srv, _, _, _, _, token := newWebServer(t)
-
-	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/tenants", token, nil)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET tenants: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status: got %d, want 200; body: %s", resp.StatusCode, body)
-	}
-}
-
-// TestAPIKeysPage_Renders verifies that GET /admin/tenants/{tenantID}/apikeys
-// returns 200 and renders without template errors.
+// TestAPIKeysPage_Renders verifies that GET /admin/apikeys returns 200.
 func TestAPIKeysPage_Renders(t *testing.T) {
-	srv, _, _, tenant, _, token := newWebServer(t)
+	srv, _, _, _, token := newWebServer(t)
 
-	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/tenants/"+tenant.ID+"/apikeys", token, nil)
+	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/apikeys", token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET apikeys: %v", err)
@@ -245,12 +202,12 @@ func TestAPIKeysPage_Renders(t *testing.T) {
 	}
 }
 
-// TestUsersPage_Renders verifies that GET /admin/tenants/{tenantID}/users
-// returns 200 and includes the perm_mode card and no template errors.
+// TestUsersPage_Renders verifies that GET /admin/users returns 200 and
+// includes the perm_mode card and no template errors.
 func TestUsersPage_Renders(t *testing.T) {
-	srv, _, _, tenant, _, token := newWebServer(t)
+	srv, _, _, _, token := newWebServer(t)
 
-	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/tenants/"+tenant.ID+"/users", token, nil)
+	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/users", token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET users: %v", err)
@@ -261,24 +218,11 @@ func TestUsersPage_Renders(t *testing.T) {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status: got %d, want 200; body: %s", resp.StatusCode, body)
 	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read body: %v", err)
-	}
-	page := string(body)
-
-	if !strings.Contains(page, "Access policy") {
-		t.Error("expected perm_mode card (\"Access policy\") in users page")
-	}
-	if !strings.Contains(page, "perm-mode-"+tenant.ID) {
-		t.Errorf("expected perm_mode select id in page, tenant: %s", tenant.ID)
-	}
 }
 
 // TestDashboardPage_Renders verifies that GET /admin/ returns 200.
 func TestDashboardPage_Renders(t *testing.T) {
-	srv, _, _, _, _, token := newWebServer(t)
+	srv, _, _, _, token := newWebServer(t)
 
 	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/", token, nil)
 	resp, err := http.DefaultClient.Do(req)
@@ -293,11 +237,11 @@ func TestDashboardPage_Renders(t *testing.T) {
 	}
 }
 
-// TestProjectsPage_Renders verifies that GET /admin/tenants/{tenantID}/projects returns 200.
+// TestProjectsPage_Renders verifies that GET /admin/projects returns 200.
 func TestProjectsPage_Renders(t *testing.T) {
-	srv, _, repoStore, tenant, _, token := newWebServer(t)
+	srv, _, repoStore, _, token := newWebServer(t)
 
-	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/tenants/"+tenant.ID+"/projects", token, nil)
+	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/projects", token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET projects: %v", err)
@@ -311,17 +255,17 @@ func TestProjectsPage_Renders(t *testing.T) {
 	_ = repoStore
 }
 
-// TestBucketsPage_Renders verifies that GET /admin/tenants/{tenantID}/projects/{projectID}/buckets returns 200.
+// TestBucketsPage_Renders verifies that GET /admin/projects/{projectID}/buckets returns 200.
 func TestBucketsPage_Renders(t *testing.T) {
-	srv, _, repoStore, tenant, _, token := newWebServer(t)
+	srv, _, repoStore, _, token := newWebServer(t)
 
-	project, err := repoStore.CreateProject(context.Background(), tenant.ID, "test-proj", "test project")
+	project, err := repoStore.CreateProject(context.Background(), "test-proj", "test project")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
 
 	req := sessionReq(t, http.MethodGet,
-		srv.URL+"/admin/tenants/"+tenant.ID+"/projects/"+project.ID+"/buckets",
+		srv.URL+"/admin/projects/"+project.ID+"/buckets",
 		token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -337,9 +281,9 @@ func TestBucketsPage_Renders(t *testing.T) {
 
 // TestDocumentsPage_Renders verifies that GET .../buckets/{bucketID}/documents returns 200.
 func TestDocumentsPage_Renders(t *testing.T) {
-	srv, _, repoStore, tenant, _, token := newWebServer(t)
+	srv, _, repoStore, _, token := newWebServer(t)
 
-	project, err := repoStore.CreateProject(context.Background(), tenant.ID, "test-proj", "")
+	project, err := repoStore.CreateProject(context.Background(), "test-proj", "")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}
@@ -349,7 +293,7 @@ func TestDocumentsPage_Renders(t *testing.T) {
 	}
 
 	req := sessionReq(t, http.MethodGet,
-		srv.URL+"/admin/tenants/"+tenant.ID+"/projects/"+project.ID+"/buckets/"+bucket.ID+"/documents",
+		srv.URL+"/admin/projects/"+project.ID+"/buckets/"+bucket.ID+"/documents",
 		token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -365,9 +309,9 @@ func TestDocumentsPage_Renders(t *testing.T) {
 
 // TestDocumentDetailPage_Renders verifies that GET /admin/documents/{documentID} returns 200.
 func TestDocumentDetailPage_Renders(t *testing.T) {
-	srv, _, repoStore, tenant, user, token := newWebServer(t)
+	srv, _, repoStore, user, token := newWebServer(t)
 
-	project, err := repoStore.CreateProject(context.Background(), tenant.ID, "test-proj", "")
+	project, err := repoStore.CreateProject(context.Background(), "test-proj", "")
 	if err != nil {
 		t.Fatalf("CreateProject: %v", err)
 	}

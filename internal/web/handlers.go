@@ -184,7 +184,7 @@ type projectsData struct {
 
 func (h *Handler) projects(w http.ResponseWriter, r *http.Request) {
 	page, limit := parsePage(r)
-	projects, total, _ := h.repo.ListProjects(r.Context(), "", repo.PageOpts{Limit: limit, Offset: pageOffset(page, limit)})
+	projects, total, _ := h.repo.ListProjects(r.Context(), repo.PageOpts{Limit: limit, Offset: pageOffset(page, limit)})
 	h.render(w, "projects", projectsData{
 		basePage: h.base(r, "projects"),
 		Projects: projects,
@@ -199,7 +199,7 @@ func (h *Handler) createProject(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "name required", http.StatusBadRequest)
 		return
 	}
-	p, err := h.repo.CreateProject(r.Context(), "", name, desc)
+	p, err := h.repo.CreateProject(r.Context(), name, desc)
 	if err != nil {
 		http.Error(w, "create failed: "+err.Error(), http.StatusInternalServerError)
 		return
