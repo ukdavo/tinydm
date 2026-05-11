@@ -199,7 +199,14 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 							})
 
 							// Tags and properties — require document read at minimum
-							r.Get("/tags", tagHandler.List)
+							r.With(CanMiddleware(authStore, auth.ActionRead, auth.ResourceDocument,
+								func(r *http.Request) string { return chi.URLParam(r, "documentID") },
+								func(r *http.Request) []auth.ResourceAncestor {
+									return []auth.ResourceAncestor{
+										{Type: auth.ResourceBucket, ID: chi.URLParam(r, "bucketID")},
+										{Type: auth.ResourceProject, ID: chi.URLParam(r, "projectID")},
+									}
+								})).Get("/tags", tagHandler.List)
 							r.With(CanMiddleware(authStore, auth.ActionUpdate, auth.ResourceDocument,
 								func(r *http.Request) string { return chi.URLParam(r, "documentID") },
 								func(r *http.Request) []auth.ResourceAncestor {
@@ -225,7 +232,14 @@ func RegisterRoutes(r chi.Router, cfg *config.Config, repoStore *repo.Store, aut
 									}
 								})).Delete("/tags/{tag}", tagHandler.Remove)
 
-							r.Get("/properties", propHandler.List)
+							r.With(CanMiddleware(authStore, auth.ActionRead, auth.ResourceDocument,
+								func(r *http.Request) string { return chi.URLParam(r, "documentID") },
+								func(r *http.Request) []auth.ResourceAncestor {
+									return []auth.ResourceAncestor{
+										{Type: auth.ResourceBucket, ID: chi.URLParam(r, "bucketID")},
+										{Type: auth.ResourceProject, ID: chi.URLParam(r, "projectID")},
+									}
+								})).Get("/properties", propHandler.List)
 							r.With(CanMiddleware(authStore, auth.ActionUpdate, auth.ResourceDocument,
 								func(r *http.Request) string { return chi.URLParam(r, "documentID") },
 								func(r *http.Request) []auth.ResourceAncestor {

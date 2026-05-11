@@ -232,19 +232,6 @@ func contextWith(ctx context.Context, key ctxKey, val any) context.Context {
 	return context.WithValue(ctx, key, val)
 }
 
-func rightsFromCtx(r *http.Request) []auth.Right {
-	v, _ := r.Context().Value(rightsKey).([]auth.Right)
-	return v
-}
-
-func permModeFromCtx(r *http.Request) auth.PermMode {
-	v, _ := r.Context().Value(permModeKey).(auth.PermMode)
-	if v == "" {
-		return auth.PermModeExplicit
-	}
-	return v
-}
-
 // VersionCtx loads the document version identified by {versionID} and verifies
 // it belongs to the document already in context.
 func VersionCtx(store *repo.Store) func(http.Handler) http.Handler {
