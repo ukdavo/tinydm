@@ -16,4 +16,4 @@ document.addEventListener('input', e => {
   const container = e.target.closest('.inline-form, .edit-row-form');
   if (container) checkForm(container);
 });
-document.addEventListener('htmx:afterSettle', e => initForms(e.detail.elt));
+document.addEventListener('htmx:afterSettle', () => initForms());
