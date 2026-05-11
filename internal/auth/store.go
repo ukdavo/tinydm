@@ -250,6 +250,26 @@ func (s *Store) GetAPIKeyByHash(ctx context.Context, hash string) (*APIKey, erro
 	return &k, nil
 }
 
+// GetAPIKeyByID fetches an API key row by its primary key.
+// Returns nil, nil when the key does not exist.
+func (s *Store) GetAPIKeyByID(ctx context.Context, id string) (*APIKey, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, tenant_id, user_id, name, key_hash, key_prefix, expires_at, revoked_at
+		FROM api_keys
+		WHERE id = ?`,
+		id,
+	)
+	var k APIKey
+	if err := row.Scan(&k.ID, &k.TenantID, &k.UserID, &k.Name,
+		&k.KeyHash, &k.KeyPrefix, &k.ExpiresAt, &k.RevokedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get api key by id: %w", err)
+	}
+	return &k, nil
+}
+
 // CreateAPIKey inserts a new API key. keyHash and keyPrefix are computed by
 // the caller via GenerateAPIKey().
 func (s *Store) CreateAPIKey(ctx context.Context, tenantID string, userID *string, name, keyHash, keyPrefix string, expiresAt *time.Time) (*APIKey, error) {
@@ -459,6 +479,24 @@ func (s *Store) ListRights(ctx context.Context, tenantID, principalType, princip
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list rights: %w", err)
+	}
+	defer rows.Close()
+	return scanRights(rows)
+}
+
+// ListRightsByResource returns all rights for a given resource, ordered by
+// principal_type, principal_id.
+func (s *Store) ListRightsByResource(ctx context.Context, tenantID, resourceType, resourceID string) ([]Right, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT principal_type, principal_id, resource_type, resource_id,
+		       can_create, can_read, can_update, can_delete
+		FROM rights
+		WHERE tenant_id = ? AND resource_type = ? AND resource_id = ?
+		ORDER BY principal_type, principal_id`,
+		tenantID, resourceType, resourceID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list rights by resource: %w", err)
 	}
 	defer rows.Close()
 	return scanRights(rows)

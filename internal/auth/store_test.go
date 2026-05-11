@@ -553,3 +553,92 @@ func TestGetTenantPermMode_UnknownTenantReturnsExplicit(t *testing.T) {
 		t.Errorf("unknown tenant: got %q, want explicit", mode)
 	}
 }
+
+// ─── GetAPIKeyByID tests ──────────────────────────────────────────────────────
+
+func TestGetAPIKeyByID_Found(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	tenant := seedTenant(t, s)
+	user := seedUser(t, s, tenant.ID, "alice", UserTypeUser)
+
+	_, keyHash, keyPrefix, err := GenerateAPIKey()
+	if err != nil {
+		t.Fatalf("GenerateAPIKey: %v", err)
+	}
+	created, err := s.CreateAPIKey(ctx, tenant.ID, &user.ID, "my-key", keyHash, keyPrefix, nil)
+	if err != nil {
+		t.Fatalf("CreateAPIKey: %v", err)
+	}
+
+	got, err := s.GetAPIKeyByID(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("GetAPIKeyByID: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected non-nil APIKey, got nil")
+	}
+	if got.Name != "my-key" {
+		t.Errorf("Name: got %q, want %q", got.Name, "my-key")
+	}
+	if got.KeyPrefix != keyPrefix {
+		t.Errorf("KeyPrefix: got %q, want %q", got.KeyPrefix, keyPrefix)
+	}
+}
+
+func TestGetAPIKeyByID_Missing(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	got, err := s.GetAPIKeyByID(ctx, "00000000-0000-0000-0000-000000000000")
+	if err != nil {
+		t.Fatalf("GetAPIKeyByID: unexpected error: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil for missing key, got %+v", got)
+	}
+}
+
+// ─── ListRightsByResource tests ───────────────────────────────────────────────
+
+func TestListRightsByResource(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	tenant := seedTenant(t, s)
+	alice := seedUser(t, s, tenant.ID, "alice", UserTypeUser)
+	bob := seedUser(t, s, tenant.ID, "bob", UserTypeUser)
+
+	// Two rights on the same project resource.
+	_ = s.UpsertRight(ctx, UpsertRightParams{
+		TenantID: tenant.ID, PrincipalType: "user", PrincipalID: alice.ID,
+		ResourceType: "project", ResourceID: "proj-1", CanRead: true,
+	})
+	_ = s.UpsertRight(ctx, UpsertRightParams{
+		TenantID: tenant.ID, PrincipalType: "user", PrincipalID: bob.ID,
+		ResourceType: "project", ResourceID: "proj-1", CanRead: true, CanUpdate: true,
+	})
+
+	// One right on a different resource (should be excluded).
+	_ = s.UpsertRight(ctx, UpsertRightParams{
+		TenantID: tenant.ID, PrincipalType: "user", PrincipalID: alice.ID,
+		ResourceType: "bucket", ResourceID: "bucket-1", CanRead: true,
+	})
+
+	rights, err := s.ListRightsByResource(ctx, tenant.ID, "project", "proj-1")
+	if err != nil {
+		t.Fatalf("ListRightsByResource: %v", err)
+	}
+	if len(rights) != 2 {
+		t.Fatalf("expected 2 rights for proj-1, got %d: %+v", len(rights), rights)
+	}
+	for _, r := range rights {
+		if r.ResourceID == "bucket-1" {
+			t.Errorf("bucket-1 right should not appear in project results")
+		}
+		if r.ResourceType != "project" {
+			t.Errorf("expected resource_type=project, got %q", r.ResourceType)
+		}
+	}
+}
