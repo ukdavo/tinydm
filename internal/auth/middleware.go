@@ -16,7 +16,7 @@ import (
 //
 // Authentication schemes (evaluated in order):
 //  1. Authorization: Bearer <JWT>
-//  2. Authorization: Basic <base64(username:password)>  +  X-Tenant-ID header
+//  2. Authorization: Basic <base64(username:password)>
 //  3. X-API-Key: <key>
 func Authenticator(secret string, store *Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
