@@ -23,30 +23,6 @@ func newTestStore(t *testing.T) *Store {
 	return NewStore(sqlDB)
 }
 
-// testTenant is a minimal tenant record returned by seedTenant.
-type testTenant struct {
-	ID string
-}
-
-// seedTenant inserts a bare tenant row so FK constraints on users are satisfied.
-// If an id argument is provided it is used as-is; otherwise a UUID is generated.
-func seedTenant(t *testing.T, s *Store, ids ...string) testTenant {
-	t.Helper()
-	id := ""
-	if len(ids) > 0 {
-		id = ids[0]
-	}
-	if id == "" {
-		id = "tenant-" + randomSuffix()
-	}
-	_, err := s.db.ExecContext(context.Background(),
-		`INSERT INTO tenants (id, name, description) VALUES (?, ?, ?)`, id, id, "")
-	if err != nil {
-		t.Fatalf("seedTenant %q: %v", id, err)
-	}
-	return testTenant{ID: id}
-}
-
 // randomSuffix returns a short random hex string for unique IDs in tests.
 func randomSuffix() string {
 	b := make([]byte, 4)
@@ -56,95 +32,41 @@ func randomSuffix() string {
 	return fmt.Sprintf("%x", b)
 }
 
-// seedUser inserts a user row for the given tenant and returns the created User.
-func seedUser(t *testing.T, s *Store, tenantID, username string, userType UserType) *User {
+// seedUser inserts a user row and returns the created User.
+func seedUser(t *testing.T, s *Store, username string, userType UserType) *User {
 	t.Helper()
 	hash, err := HashPassword("testpass")
 	if err != nil {
 		t.Fatalf("seedUser HashPassword: %v", err)
 	}
-	u, err := s.CreateUser(context.Background(), tenantID, username, "", username, username, hash, userType)
+	u, err := s.CreateUser(context.Background(), username, "", username, username, hash, userType)
 	if err != nil {
 		t.Fatalf("seedUser CreateUser %q: %v", username, err)
 	}
 	return u
 }
 
-func TestCreateDomainAdmin_CreatesAdminUser(t *testing.T) {
-	ctx := context.Background()
-	s := newTestStore(t)
-	seedTenant(t, s, "tenant-1")
-
-	user, plaintext, err := s.CreateDomainAdmin(ctx, "tenant-1")
-	if err != nil {
-		t.Fatalf("CreateDomainAdmin: %v", err)
-	}
-
-	if user.UserType != UserTypeAdmin {
-		t.Errorf("user_type: got %q, want %q", user.UserType, UserTypeAdmin)
-	}
-	if user.TenantID != "tenant-1" {
-		t.Errorf("tenant_id: got %q, want %q", user.TenantID, "tenant-1")
-	}
-	if plaintext == "" {
-		t.Error("expected non-empty plaintext password")
-	}
-}
-
-func TestCreateDomainAdmin_PasswordAuthenticates(t *testing.T) {
-	ctx := context.Background()
-	s := newTestStore(t)
-	seedTenant(t, s, "tenant-1")
-
-	user, plaintext, err := s.CreateDomainAdmin(ctx, "tenant-1")
-	if err != nil {
-		t.Fatalf("CreateDomainAdmin: %v", err)
-	}
-
-	// The stored hash must match the returned plaintext.
-	if err := CheckPassword(user.PasswordHash, plaintext); err != nil {
-		t.Errorf("returned plaintext does not match stored hash: %v", err)
-	}
-}
-
-func TestCreateDomainAdmin_PlaintextNotStoredInHash(t *testing.T) {
-	ctx := context.Background()
-	s := newTestStore(t)
-	seedTenant(t, s, "tenant-1")
-
-	user, plaintext, err := s.CreateDomainAdmin(ctx, "tenant-1")
-	if err != nil {
-		t.Fatalf("CreateDomainAdmin: %v", err)
-	}
-
-	if user.PasswordHash == plaintext {
-		t.Error("password_hash must not equal the plaintext password")
-	}
-}
-
 func TestDeleteUser_RejectsSuperadmin(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	seedTenant(t, s, "tenant-sys")
 
 	hash, _ := HashPassword("secret")
-	superadmin, err := s.CreateUser(ctx, "tenant-sys", "superadmin", "", "Super", "Admin", hash, UserTypeSuperAdmin)
+	admin, err := s.CreateUser(ctx, "admin", "", "Admin", "User", hash, UserTypeAdmin)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	if err := s.DeleteUser(ctx, superadmin.ID); err == nil {
-		t.Error("expected error deleting superadmin, got nil")
+	if err := s.DeleteUser(ctx, admin.ID); err == nil {
+		t.Error("expected error deleting admin, got nil")
 	}
 }
 
 func TestDeleteUser_AllowsRegularUser(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	seedTenant(t, s, "tenant-1")
 
 	hash, _ := HashPassword("secret")
-	user, err := s.CreateUser(ctx, "tenant-1", "alice", "", "Alice", "Smith", hash, UserTypeUser)
+	user, err := s.CreateUser(ctx, "alice", "", "Alice", "Smith", hash, UserTypeUser)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -154,45 +76,27 @@ func TestDeleteUser_AllowsRegularUser(t *testing.T) {
 	}
 }
 
-func TestSetUserActive_RejectsSuperadminDeactivation(t *testing.T) {
+func TestSetUserActive_RejectsAdminDeactivation(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	seedTenant(t, s, "tenant-sys")
 
 	hash, _ := HashPassword("secret")
-	superadmin, err := s.CreateUser(ctx, "tenant-sys", "superadmin", "", "Super", "Admin", hash, UserTypeSuperAdmin)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-
-	if err := s.SetUserActive(ctx, superadmin.ID, false); err == nil {
-		t.Error("expected error deactivating superadmin, got nil")
-	}
-}
-
-func TestSetUserActive_RejectsDomainAdminDeactivation(t *testing.T) {
-	ctx := context.Background()
-	s := newTestStore(t)
-	seedTenant(t, s, "tenant-1")
-
-	hash, _ := HashPassword("secret")
-	admin, err := s.CreateUser(ctx, "tenant-1", "admin", "", "Domain", "Admin", hash, UserTypeAdmin)
+	admin, err := s.CreateUser(ctx, "admin", "", "Admin", "User", hash, UserTypeAdmin)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
 	if err := s.SetUserActive(ctx, admin.ID, false); err == nil {
-		t.Error("expected error deactivating domain admin, got nil")
+		t.Error("expected error deactivating admin, got nil")
 	}
 }
 
 func TestSetUserActive_AllowsRegularUserDeactivation(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	seedTenant(t, s, "tenant-1")
 
 	hash, _ := HashPassword("secret")
-	user, err := s.CreateUser(ctx, "tenant-1", "alice", "", "Alice", "Smith", hash, UserTypeUser)
+	user, err := s.CreateUser(ctx, "alice", "", "Alice", "Smith", hash, UserTypeUser)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -205,10 +109,9 @@ func TestSetUserActive_AllowsRegularUserDeactivation(t *testing.T) {
 func TestSetUserActive_AllowsReactivation(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	seedTenant(t, s, "tenant-1")
 
 	hash, _ := HashPassword("secret")
-	user, err := s.CreateUser(ctx, "tenant-1", "alice", "", "Alice", "Smith", hash, UserTypeUser)
+	user, err := s.CreateUser(ctx, "alice", "", "Alice", "Smith", hash, UserTypeUser)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -223,10 +126,9 @@ func TestSetUserActive_AllowsReactivation(t *testing.T) {
 func TestCreateUser_PersistsFirstAndLastName(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	seedTenant(t, s, "tenant-1")
 
 	hash, _ := HashPassword("secret")
-	user, err := s.CreateUser(ctx, "tenant-1", "alice", "alice@example.com", "Alice", "Smith", hash, UserTypeUser)
+	user, err := s.CreateUser(ctx, "alice", "alice@example.com", "Alice", "Smith", hash, UserTypeUser)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -250,14 +152,13 @@ func TestCreateUser_PersistsFirstAndLastName(t *testing.T) {
 func TestListUsers_ReturnsFirstAndLastName(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	seedTenant(t, s, "tenant-1")
 
 	hash, _ := HashPassword("secret")
-	if _, err := s.CreateUser(ctx, "tenant-1", "alice", "", "Alice", "Smith", hash, UserTypeUser); err != nil {
+	if _, err := s.CreateUser(ctx, "alice", "", "Alice", "Smith", hash, UserTypeUser); err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	users, _, err := s.ListUsers(ctx, "tenant-1", 0, 0)
+	users, _, err := s.ListUsers(ctx, 0, 0)
 	if err != nil {
 		t.Fatalf("ListUsers: %v", err)
 	}
@@ -272,10 +173,9 @@ func TestListUsers_ReturnsFirstAndLastName(t *testing.T) {
 func TestChangePassword_UpdatesHash(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	seedTenant(t, s, "tenant-1")
 
 	oldHash, _ := HashPassword("oldpass")
-	user, err := s.CreateUser(ctx, "tenant-1", "alice", "", "Alice", "Smith", oldHash, UserTypeUser)
+	user, err := s.CreateUser(ctx, "alice", "", "Alice", "Smith", oldHash, UserTypeUser)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
@@ -307,68 +207,62 @@ func TestChangePassword_UnknownUserReturnsError(t *testing.T) {
 	}
 }
 
-func TestCountUsersByTenant_ReturnsCorrectCount(t *testing.T) {
+func TestCountUsers_ReturnsCorrectCount(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	seedTenant(t, s, "tenant-1")
-	seedTenant(t, s, "tenant-2")
 
 	hash, _ := HashPassword("pass")
-	_, err := s.CreateUser(ctx, "tenant-1", "alice", "alice@test.local", "Alice", "A", hash, UserTypeUser)
+	_, err := s.CreateUser(ctx, "alice", "alice@test.local", "Alice", "A", hash, UserTypeUser)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	_, err = s.CreateUser(ctx, "tenant-1", "bob", "bob@test.local", "Bob", "B", hash, UserTypeUser)
-	if err != nil {
-		t.Fatalf("CreateUser: %v", err)
-	}
-	_, err = s.CreateUser(ctx, "tenant-2", "carol", "carol@test.local", "Carol", "C", hash, UserTypeUser)
+	_, err = s.CreateUser(ctx, "bob", "bob@test.local", "Bob", "B", hash, UserTypeUser)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	n, err := s.CountUsersByTenant(ctx, "tenant-1")
+	n, err := s.CountUsers(ctx)
 	if err != nil {
-		t.Fatalf("CountUsersByTenant: %v", err)
+		t.Fatalf("CountUsers: %v", err)
 	}
 	if n != 2 {
 		t.Errorf("got %d, want 2", n)
 	}
 }
 
-func TestCountAPIKeysByTenant_ReturnsCorrectCount(t *testing.T) {
+func TestCountAPIKeys_ReturnsCorrectCount(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)
-	seedTenant(t, s, "tenant-1")
-	seedTenant(t, s, "tenant-2")
 
 	hash, _ := HashPassword("pass")
-	u1, _ := s.CreateUser(ctx, "tenant-1", "alice", "alice@t.local", "Alice", "A", hash, UserTypeAdmin)
-	u2, _ := s.CreateUser(ctx, "tenant-2", "bob", "bob@t.local", "Bob", "B", hash, UserTypeAdmin)
+	u1, _ := s.CreateUser(ctx, "alice", "alice@t.local", "Alice", "A", hash, UserTypeAdmin)
+	u2, _ := s.CreateUser(ctx, "bob", "bob@t.local", "Bob", "B", hash, UserTypeAdmin)
 
 	_, keyHash1, keyPrefix1, _ := GenerateAPIKey()
-	_, err := s.CreateAPIKey(ctx, u1.TenantID, &u1.ID, "key1", keyHash1, keyPrefix1, nil)
+	_, err := s.CreateAPIKey(ctx, &u1.ID, "key1", keyHash1, keyPrefix1, nil)
 	if err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
 	}
 	_, keyHash2, keyPrefix2, _ := GenerateAPIKey()
-	_, err = s.CreateAPIKey(ctx, u1.TenantID, &u1.ID, "key2", keyHash2, keyPrefix2, nil)
+	_, err = s.CreateAPIKey(ctx, &u1.ID, "key2", keyHash2, keyPrefix2, nil)
 	if err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
 	}
 	_, keyHash3, keyPrefix3, _ := GenerateAPIKey()
-	_, err = s.CreateAPIKey(ctx, u2.TenantID, &u2.ID, "other", keyHash3, keyPrefix3, nil)
+	_, err = s.CreateAPIKey(ctx, &u2.ID, "other", keyHash3, keyPrefix3, nil)
 	if err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
 	}
 
-	n, err := s.CountAPIKeysByTenant(ctx, "tenant-1")
+	// Verify total key count.
+	keys, total, err := s.ListAPIKeys(ctx, 0, 0)
 	if err != nil {
-		t.Fatalf("CountAPIKeysByTenant: %v", err)
+		t.Fatalf("ListAPIKeys: %v", err)
 	}
-	if n != 2 {
-		t.Errorf("got %d, want 2", n)
+	if total != 3 {
+		t.Errorf("got total=%d, want 3", total)
 	}
+	_ = keys
 }
 
 // ─── Rights store methods ─────────────────────────────────────────────────────
@@ -377,11 +271,9 @@ func TestUpsertRight_CreateAndUpdate(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	tenant := seedTenant(t, s)
-	user := seedUser(t, s, tenant.ID, "alice", UserTypeUser)
+	user := seedUser(t, s, "alice", UserTypeUser)
 
 	params := UpsertRightParams{
-		TenantID:      tenant.ID,
 		PrincipalType: "user",
 		PrincipalID:   user.ID,
 		ResourceType:  "project",
@@ -392,7 +284,7 @@ func TestUpsertRight_CreateAndUpdate(t *testing.T) {
 		t.Fatalf("UpsertRight: %v", err)
 	}
 
-	rights, err := s.ListRights(ctx, tenant.ID, "user", user.ID)
+	rights, err := s.ListRights(ctx, "user", user.ID)
 	if err != nil {
 		t.Fatalf("ListRights: %v", err)
 	}
@@ -411,7 +303,7 @@ func TestUpsertRight_CreateAndUpdate(t *testing.T) {
 	if err := s.UpsertRight(ctx, params); err != nil {
 		t.Fatalf("UpsertRight update: %v", err)
 	}
-	rights2, _ := s.ListRights(ctx, tenant.ID, "user", user.ID)
+	rights2, _ := s.ListRights(ctx, "user", user.ID)
 	if !rights2[0].CanDelete {
 		t.Error("CanDelete should be true after update")
 	}
@@ -421,11 +313,9 @@ func TestDeleteRight_RemovesRow(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	tenant := seedTenant(t, s)
-	user := seedUser(t, s, tenant.ID, "bob", UserTypeUser)
+	user := seedUser(t, s, "bob", UserTypeUser)
 
 	params := UpsertRightParams{
-		TenantID:      tenant.ID,
 		PrincipalType: "user",
 		PrincipalID:   user.ID,
 		ResourceType:  "bucket",
@@ -434,11 +324,11 @@ func TestDeleteRight_RemovesRow(t *testing.T) {
 	}
 	_ = s.UpsertRight(ctx, params)
 
-	if err := s.DeleteRight(ctx, tenant.ID, "user", user.ID, "bucket", "bucket-1"); err != nil {
+	if err := s.DeleteRight(ctx, "user", user.ID, "bucket", "bucket-1"); err != nil {
 		t.Fatalf("DeleteRight: %v", err)
 	}
 
-	rights, _ := s.ListRights(ctx, tenant.ID, "user", user.ID)
+	rights, _ := s.ListRights(ctx, "user", user.ID)
 	if len(rights) != 0 {
 		t.Errorf("expected 0 rights after delete, got %d", len(rights))
 	}
@@ -447,9 +337,8 @@ func TestDeleteRight_RemovesRow(t *testing.T) {
 func TestDeleteRight_NotFound_ReturnsError(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	tenant := seedTenant(t, s)
 
-	err := s.DeleteRight(ctx, tenant.ID, "user", "no-user", "project", "no-proj")
+	err := s.DeleteRight(ctx, "user", "no-user", "project", "no-proj")
 	if err == nil {
 		t.Error("expected error deleting non-existent right")
 	}
@@ -459,25 +348,24 @@ func TestListRights_IsolatesByPrincipal(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	tenant := seedTenant(t, s)
-	alice := seedUser(t, s, tenant.ID, "alice", UserTypeUser)
-	bob := seedUser(t, s, tenant.ID, "bob", UserTypeUser)
+	alice := seedUser(t, s, "alice", UserTypeUser)
+	bob := seedUser(t, s, "bob", UserTypeUser)
 
 	_ = s.UpsertRight(ctx, UpsertRightParams{
-		TenantID: tenant.ID, PrincipalType: "user", PrincipalID: alice.ID,
+		PrincipalType: "user", PrincipalID: alice.ID,
 		ResourceType: "project", ResourceID: "proj-1", CanRead: true,
 	})
 	_ = s.UpsertRight(ctx, UpsertRightParams{
-		TenantID: tenant.ID, PrincipalType: "user", PrincipalID: bob.ID,
+		PrincipalType: "user", PrincipalID: bob.ID,
 		ResourceType: "project", ResourceID: "proj-2", CanRead: true,
 	})
 
-	aliceRights, _ := s.ListRights(ctx, tenant.ID, "user", alice.ID)
+	aliceRights, _ := s.ListRights(ctx, "user", alice.ID)
 	if len(aliceRights) != 1 || aliceRights[0].ResourceID != "proj-1" {
 		t.Errorf("alice should have exactly 1 right on proj-1, got %+v", aliceRights)
 	}
 
-	bobRights, _ := s.ListRights(ctx, tenant.ID, "user", bob.ID)
+	bobRights, _ := s.ListRights(ctx, "user", bob.ID)
 	if len(bobRights) != 1 || bobRights[0].ResourceID != "proj-2" {
 		t.Errorf("bob should have exactly 1 right on proj-2, got %+v", bobRights)
 	}
@@ -487,23 +375,22 @@ func TestGetAPIKeyRights_ReturnOnlyAPIKeyRights(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	tenant := seedTenant(t, s)
-	user := seedUser(t, s, tenant.ID, "alice", UserTypeUser)
+	user := seedUser(t, s, "alice", UserTypeUser)
 
 	// Grant a right to the user (principal_type=user).
 	_ = s.UpsertRight(ctx, UpsertRightParams{
-		TenantID: tenant.ID, PrincipalType: "user", PrincipalID: user.ID,
+		PrincipalType: "user", PrincipalID: user.ID,
 		ResourceType: "project", ResourceID: "proj-1", CanRead: true,
 	})
 
 	// Grant a right to an API key (principal_type=apikey).
 	keyID := "apikey-test-id"
 	_ = s.UpsertRight(ctx, UpsertRightParams{
-		TenantID: tenant.ID, PrincipalType: "apikey", PrincipalID: keyID,
+		PrincipalType: "apikey", PrincipalID: keyID,
 		ResourceType: "bucket", ResourceID: "bucket-1", CanRead: true,
 	})
 
-	rights, err := s.GetAPIKeyRights(ctx, tenant.ID, keyID)
+	rights, err := s.GetAPIKeyRights(ctx, keyID)
 	if err != nil {
 		t.Fatalf("GetAPIKeyRights: %v", err)
 	}
@@ -515,59 +402,19 @@ func TestGetAPIKeyRights_ReturnOnlyAPIKeyRights(t *testing.T) {
 	}
 }
 
-func TestGetSetTenantPermMode(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-
-	tenant := seedTenant(t, s)
-
-	// Default should be explicit.
-	mode, err := s.GetTenantPermMode(ctx, tenant.ID)
-	if err != nil {
-		t.Fatalf("GetTenantPermMode: %v", err)
-	}
-	if mode != PermModeExplicit {
-		t.Errorf("default mode: got %q, want %q", mode, PermModeExplicit)
-	}
-
-	// Update to inherit.
-	if err := s.SetTenantPermMode(ctx, tenant.ID, PermModeInherit); err != nil {
-		t.Fatalf("SetTenantPermMode: %v", err)
-	}
-
-	mode2, _ := s.GetTenantPermMode(ctx, tenant.ID)
-	if mode2 != PermModeInherit {
-		t.Errorf("after set: got %q, want %q", mode2, PermModeInherit)
-	}
-}
-
-func TestGetTenantPermMode_UnknownTenantReturnsExplicit(t *testing.T) {
-	s := newTestStore(t)
-	ctx := context.Background()
-
-	mode, err := s.GetTenantPermMode(ctx, "does-not-exist")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if mode != PermModeExplicit {
-		t.Errorf("unknown tenant: got %q, want explicit", mode)
-	}
-}
-
 // ─── GetAPIKeyByID tests ──────────────────────────────────────────────────────
 
 func TestGetAPIKeyByID_Found(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	tenant := seedTenant(t, s)
-	user := seedUser(t, s, tenant.ID, "alice", UserTypeUser)
+	user := seedUser(t, s, "alice", UserTypeUser)
 
 	_, keyHash, keyPrefix, err := GenerateAPIKey()
 	if err != nil {
 		t.Fatalf("GenerateAPIKey: %v", err)
 	}
-	created, err := s.CreateAPIKey(ctx, tenant.ID, &user.ID, "my-key", keyHash, keyPrefix, nil)
+	created, err := s.CreateAPIKey(ctx, &user.ID, "my-key", keyHash, keyPrefix, nil)
 	if err != nil {
 		t.Fatalf("CreateAPIKey: %v", err)
 	}
@@ -606,27 +453,26 @@ func TestListRightsByResource(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	tenant := seedTenant(t, s)
-	alice := seedUser(t, s, tenant.ID, "alice", UserTypeUser)
-	bob := seedUser(t, s, tenant.ID, "bob", UserTypeUser)
+	alice := seedUser(t, s, "alice", UserTypeUser)
+	bob := seedUser(t, s, "bob", UserTypeUser)
 
 	// Two rights on the same project resource.
 	_ = s.UpsertRight(ctx, UpsertRightParams{
-		TenantID: tenant.ID, PrincipalType: "user", PrincipalID: alice.ID,
+		PrincipalType: "user", PrincipalID: alice.ID,
 		ResourceType: "project", ResourceID: "proj-1", CanRead: true,
 	})
 	_ = s.UpsertRight(ctx, UpsertRightParams{
-		TenantID: tenant.ID, PrincipalType: "user", PrincipalID: bob.ID,
+		PrincipalType: "user", PrincipalID: bob.ID,
 		ResourceType: "project", ResourceID: "proj-1", CanRead: true, CanUpdate: true,
 	})
 
 	// One right on a different resource (should be excluded).
 	_ = s.UpsertRight(ctx, UpsertRightParams{
-		TenantID: tenant.ID, PrincipalType: "user", PrincipalID: alice.ID,
+		PrincipalType: "user", PrincipalID: alice.ID,
 		ResourceType: "bucket", ResourceID: "bucket-1", CanRead: true,
 	})
 
-	rights, err := s.ListRightsByResource(ctx, tenant.ID, "project", "proj-1")
+	rights, err := s.ListRightsByResource(ctx, "project", "proj-1")
 	if err != nil {
 		t.Fatalf("ListRightsByResource: %v", err)
 	}

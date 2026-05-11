@@ -10,11 +10,10 @@ const testSecret = "super-secret-test-key"
 
 func TestNewJWT_ParseJWT_RoundTrip(t *testing.T) {
 	userID := "user-123"
-	tenantID := "tenant-abc"
 	username := "alice"
 	userType := UserTypeUser
 
-	token, err := NewJWT(testSecret, 60, userID, tenantID, username, userType)
+	token, err := NewJWT(testSecret, 60, userID, username, userType)
 	if err != nil {
 		t.Fatalf("NewJWT: %v", err)
 	}
@@ -30,9 +29,6 @@ func TestNewJWT_ParseJWT_RoundTrip(t *testing.T) {
 	if claims.Subject != userID {
 		t.Errorf("Subject: got %q, want %q", claims.Subject, userID)
 	}
-	if claims.TenantID != tenantID {
-		t.Errorf("TenantID: got %q, want %q", claims.TenantID, tenantID)
-	}
 	if claims.Username != username {
 		t.Errorf("Username: got %q, want %q", claims.Username, username)
 	}
@@ -42,7 +38,7 @@ func TestNewJWT_ParseJWT_RoundTrip(t *testing.T) {
 }
 
 func TestNewJWT_AdminType(t *testing.T) {
-	token, err := NewJWT(testSecret, 60, "admin-1", "tenant-1", "admin", UserTypeAdmin)
+	token, err := NewJWT(testSecret, 60, "admin-1", "admin", UserTypeAdmin)
 	if err != nil {
 		t.Fatalf("NewJWT: %v", err)
 	}
@@ -56,7 +52,7 @@ func TestNewJWT_AdminType(t *testing.T) {
 }
 
 func TestParseJWT_WrongSecret(t *testing.T) {
-	token, err := NewJWT(testSecret, 60, "u1", "t1", "bob", UserTypeUser)
+	token, err := NewJWT(testSecret, 60, "u1", "bob", UserTypeUser)
 	if err != nil {
 		t.Fatalf("NewJWT: %v", err)
 	}
@@ -68,7 +64,7 @@ func TestParseJWT_WrongSecret(t *testing.T) {
 
 func TestParseJWT_ExpiredToken(t *testing.T) {
 	// Issue a token that expired 1 minute in the past.
-	token, err := NewJWT(testSecret, -1, "u1", "t1", "bob", UserTypeUser)
+	token, err := NewJWT(testSecret, -1, "u1", "bob", UserTypeUser)
 	if err != nil {
 		t.Fatalf("NewJWT: %v", err)
 	}
@@ -98,7 +94,7 @@ func TestParseJWT_Malformed(t *testing.T) {
 }
 
 func TestNewJWT_ExpiryIsInFuture(t *testing.T) {
-	token, err := NewJWT(testSecret, 30, "u1", "t1", "carol", UserTypeUser)
+	token, err := NewJWT(testSecret, 30, "u1", "carol", UserTypeUser)
 	if err != nil {
 		t.Fatalf("NewJWT: %v", err)
 	}

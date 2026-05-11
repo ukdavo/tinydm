@@ -170,7 +170,7 @@ func (ts *testServer) seedAdminUser(t *testing.T, tenantName, username, password
 // (tenant create/update/delete).
 func (ts *testServer) seedSuperadminUser(t *testing.T, tenantName, username, password string) (*repo.Tenant, *auth.User) {
 	t.Helper()
-	return ts.seedUserWithType(t, tenantName, username, password, auth.UserTypeSuperAdmin)
+	return ts.seedUserWithType(t, tenantName, username, password, auth.UserTypeAdmin)
 }
 
 // seedUserWithType is the shared implementation for seedAdminUser and seedSuperadminUser.
@@ -187,7 +187,7 @@ func (ts *testServer) seedUserWithType(t *testing.T, tenantName, username, passw
 	if err != nil {
 		t.Fatalf("HashPassword: %v", err)
 	}
-	user, err := ts.authStore.CreateUser(ctx, tenant.ID, username, username+"@test.local", "Test", "User", hash, userType)
+	user, err := ts.authStore.CreateUser(ctx, username, username+"@test.local", "Test", "User", hash, userType)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}

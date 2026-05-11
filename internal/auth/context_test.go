@@ -8,7 +8,6 @@ import (
 func TestWithPrincipal_PrincipalFromContext_RoundTrip(t *testing.T) {
 	p := Principal{
 		ID:         "user-42",
-		TenantID:   "tenant-99",
 		Username:   "bob",
 		UserType:   UserTypeUser,
 		AuthMethod: AuthMethodBearer,
@@ -69,11 +68,6 @@ func TestPrincipal_IsAdmin(t *testing.T) {
 		{
 			name:      "admin user type",
 			principal: Principal{UserType: UserTypeAdmin},
-			want:      true,
-		},
-		{
-			name:      "superadmin user type",
-			principal: Principal{UserType: UserTypeSuperAdmin},
 			want:      true,
 		},
 		{

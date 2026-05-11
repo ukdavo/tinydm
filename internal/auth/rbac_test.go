@@ -3,15 +3,15 @@ package auth
 import "testing"
 
 func adminPrincipal() Principal {
-	return Principal{ID: "admin-1", TenantID: "tenant-1", Username: "admin", UserType: UserTypeAdmin}
+	return Principal{ID: "admin-1", Username: "admin", UserType: UserTypeAdmin}
 }
 
 func superPrincipal() Principal {
-	return Principal{ID: "super-1", TenantID: "tenant-1", Username: "super", UserType: UserTypeSuperAdmin}
+	return Principal{ID: "super-1", Username: "super", UserType: UserTypeAdmin}
 }
 
 func userPrincipal() Principal {
-	return Principal{ID: "user-1", TenantID: "tenant-1", Username: "alice", UserType: UserTypeUser}
+	return Principal{ID: "user-1", Username: "alice", UserType: UserTypeUser}
 }
 
 // ─── Admin bypass ─────────────────────────────────────────────────────────────
@@ -98,45 +98,6 @@ func TestCan_Explicit_WildcardDoesNotCrossResourceType(t *testing.T) {
 	}
 }
 
-// ─── Inherit mode ─────────────────────────────────────────────────────────────
-
-func TestCan_Inherit_AncestorGrantAllowed(t *testing.T) {
-	p := userPrincipal()
-	// Grant on project — should cascade to bucket in inherit mode.
-	rights := []Right{{ResourceType: "project", ResourceID: "proj-1", CanRead: true}}
-	ancestor := ResourceAncestor{Type: ResourceProject, ID: "proj-1"}
-	if !Can(p, rights, PermModeInherit, ActionRead, ResourceBucket, "bucket-1", ancestor) {
-		t.Error("inherit mode should fall back to ancestor grant")
-	}
-}
-
-func TestCan_Inherit_SpecificOverridesAncestor(t *testing.T) {
-	p := userPrincipal()
-	rights := []Right{
-		{ResourceType: "project", ResourceID: "proj-1", CanRead: true, CanDelete: true},
-		{ResourceType: "bucket", ResourceID: "bucket-1", CanRead: true}, // no CanDelete
-	}
-	ancestor := ResourceAncestor{Type: ResourceProject, ID: "proj-1"}
-	// Read is granted at bucket level — allowed.
-	if !Can(p, rights, PermModeInherit, ActionRead, ResourceBucket, "bucket-1", ancestor) {
-		t.Error("bucket-level read should be permitted")
-	}
-	// Delete is NOT in bucket right (even though it's in project) — denied because
-	// bucket-level right exists and doesn't grant delete.
-	if Can(p, rights, PermModeInherit, ActionDelete, ResourceBucket, "bucket-1", ancestor) {
-		t.Error("delete should be denied when bucket right exists but doesn't grant delete")
-	}
-}
-
-func TestCan_Inherit_NoGrantAnywhere_Denied(t *testing.T) {
-	p := userPrincipal()
-	rights := []Right{{ResourceType: "project", ResourceID: "proj-2", CanRead: true}}
-	ancestor := ResourceAncestor{Type: ResourceProject, ID: "proj-1"} // different project
-	if Can(p, rights, PermModeInherit, ActionRead, ResourceBucket, "bucket-1", ancestor) {
-		t.Error("no grant anywhere should deny in inherit mode")
-	}
-}
-
 // ─── Open mode ────────────────────────────────────────────────────────────────
 
 func TestCan_Open_NoRightExists_Allowed(t *testing.T) {
@@ -177,9 +138,9 @@ func TestCan_Open_UnrelatedRightDoesNotRestrict(t *testing.T) {
 
 func TestCan_AllActions(t *testing.T) {
 	p := userPrincipal()
-	rights := []Right{{ResourceType: "tenant", ResourceID: "tenant-1", CanCreate: true, CanRead: true, CanUpdate: true, CanDelete: true}}
+	rights := []Right{{ResourceType: "project", ResourceID: "proj-1", CanCreate: true, CanRead: true, CanUpdate: true, CanDelete: true}}
 	for _, action := range []Action{ActionCreate, ActionRead, ActionUpdate, ActionDelete} {
-		if !Can(p, rights, PermModeExplicit, action, ResourceTenant, "tenant-1") {
+		if !Can(p, rights, PermModeExplicit, action, ResourceProject, "proj-1") {
 			t.Errorf("full rights should permit action %q", action)
 		}
 	}

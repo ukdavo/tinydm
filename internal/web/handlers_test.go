@@ -63,12 +63,12 @@ func newWebServer(t *testing.T) (*httptest.Server, *auth.Store, *repo.Store, *re
 		t.Fatalf("CreateTenant: %v", err)
 	}
 	hash, _ := auth.HashPassword("adminpass")
-	user, err := authStore.CreateUser(ctx, tenant.ID, "alice", "alice@test.local", "Alice", "Smith", hash, auth.UserTypeAdmin)
+	user, err := authStore.CreateUser(ctx, "alice", "alice@test.local", "Alice", "Smith", hash, auth.UserTypeAdmin)
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	token, err := auth.NewJWT(webTestJWTSecret, 60, user.ID, user.TenantID, user.Username, user.UserType)
+	token, err := auth.NewJWT(webTestJWTSecret, 60, user.ID, user.Username, user.UserType)
 	if err != nil {
 		t.Fatalf("NewJWT: %v", err)
 	}

@@ -59,7 +59,7 @@ func BenchmarkNewJWT(b *testing.B) {
 
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		if _, err := NewJWT(secret, 60, "user-uuid-1234", "tenant-abc", "alice", UserTypeAdmin); err != nil {
+		if _, err := NewJWT(secret, 60, "user-uuid-1234", "alice", UserTypeAdmin); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -68,7 +68,7 @@ func BenchmarkNewJWT(b *testing.B) {
 // BenchmarkParseJWT measures JWT validation (HMAC-SHA256 verification + claims decode).
 func BenchmarkParseJWT(b *testing.B) {
 	secret := "bench-secret-32-bytes-long-xxxx"
-	token, err := NewJWT(secret, 60, "user-uuid-1234", "tenant-abc", "alice", UserTypeAdmin)
+	token, err := NewJWT(secret, 60, "user-uuid-1234", "alice", UserTypeAdmin)
 	if err != nil {
 		b.Fatal(err)
 	}

@@ -87,14 +87,14 @@ func newBenchServer(b *testing.B) *benchServer {
 	if err != nil {
 		b.Fatalf("HashPassword: %v", err)
 	}
-	_, err = authStore.CreateUser(ctx, tenant.ID, "bench-admin", "bench@test.local", "Bench", "Admin", hash, auth.UserTypeAdmin)
+	_, err = authStore.CreateUser(ctx, "bench-admin", "bench@test.local", "Bench", "Admin", hash, auth.UserTypeAdmin)
 	if err != nil {
 		b.Fatalf("CreateUser: %v", err)
 	}
 
 	// Obtain JWT for subsequent benchmark requests
 	token, err := auth.NewJWT(cfg.JWTSecret, cfg.JWTExpiryMinutes,
-		"bench-user", tenant.ID, "bench-admin", auth.UserTypeAdmin)
+		"bench-user", "bench-admin", auth.UserTypeAdmin)
 	if err != nil {
 		b.Fatalf("NewJWT: %v", err)
 	}
