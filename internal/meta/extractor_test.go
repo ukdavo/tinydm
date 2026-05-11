@@ -1,6 +1,7 @@
 package meta
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/binary"
 	"image"
@@ -333,6 +334,83 @@ func TestExtract_Office_UnknownMagic(t *testing.T) {
 	props := Extract("application/msword", bytes.NewReader([]byte{0x00, 0x01, 0x02, 0x03}))
 	if props["office.container"] != "ole2" {
 		t.Errorf("expected office.container=ole2 for OLE2 content type, got %q", props["office.container"])
+	}
+}
+
+// ─── OOXML deep tests ─────────────────────────────────────────────────────────────
+
+// makeOOXML creates a minimal OOXML (ZIP) file with the given docProps/core.xml
+// and docProps/app.xml content.
+func makeOOXML(coreXML, appXML string) []byte {
+	var buf bytes.Buffer
+	w := zip.NewWriter(&buf)
+
+	addFile := func(name, content string) {
+		f, _ := w.Create(name)
+		f.Write([]byte(content))
+	}
+
+	addFile("[Content_Types].xml", `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>`)
+	if coreXML != "" {
+		addFile("docProps/core.xml", coreXML)
+	}
+	if appXML != "" {
+		addFile("docProps/app.xml", appXML)
+	}
+	w.Close()
+	return buf.Bytes()
+}
+
+func TestExtract_OOXML_Docx_TitleAuthorWordCount(t *testing.T) {
+	core := `<?xml version="1.0"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>My Doc</dc:title><dc:creator>Alice</dc:creator></cp:coreProperties>`
+	app := `<?xml version="1.0"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Words>500</Words></Properties>`
+	data := makeOOXML(core, app)
+	ct := "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	props := Extract(ct, bytes.NewReader(data))
+
+	if props["office.container"] != "ooxml" {
+		t.Errorf("office.container: got %q, want %q", props["office.container"], "ooxml")
+	}
+	if props["office.title"] != "My Doc" {
+		t.Errorf("office.title: got %q, want %q", props["office.title"], "My Doc")
+	}
+	if props["office.author"] != "Alice" {
+		t.Errorf("office.author: got %q, want %q", props["office.author"], "Alice")
+	}
+	if props["office.word_count"] != "500" {
+		t.Errorf("office.word_count: got %q, want %q", props["office.word_count"], "500")
+	}
+}
+
+func TestExtract_OOXML_Pptx_SlideCount(t *testing.T) {
+	app := `<?xml version="1.0"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Slides>12</Slides></Properties>`
+	data := makeOOXML("", app)
+	ct := "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	props := Extract(ct, bytes.NewReader(data))
+	if props["office.slide_count"] != "12" {
+		t.Errorf("office.slide_count: got %q, want %q", props["office.slide_count"], "12")
+	}
+}
+
+func TestExtract_OOXML_Xlsx_SheetCount(t *testing.T) {
+	app := `<?xml version="1.0"?><Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Sheets>3</Sheets></Properties>`
+	data := makeOOXML("", app)
+	ct := "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	props := Extract(ct, bytes.NewReader(data))
+	if props["office.sheet_count"] != "3" {
+		t.Errorf("office.sheet_count: got %q, want %q", props["office.sheet_count"], "3")
+	}
+}
+
+// ─── OLE2 deep tests ──────────────────────────────────────────────────────────
+
+func TestExtract_OLE2_Container(t *testing.T) {
+	// OLE2 magic bytes — container type always set even if property parsing fails.
+	header := []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	props := Extract("application/msword", bytes.NewReader(header))
+	if props["office.container"] != "ole2" {
+		t.Errorf("office.container: got %q, want %q", props["office.container"], "ole2")
 	}
 }
 
