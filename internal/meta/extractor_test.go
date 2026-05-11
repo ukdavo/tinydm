@@ -430,3 +430,42 @@ func TestExtract_NeverNil(t *testing.T) {
 		t.Error("Extract should never return nil")
 	}
 }
+
+// ─── Audio tests ──────────────────────────────────────────────────────────────
+
+func TestExtract_Audio_MP3(t *testing.T) {
+	data, err := os.ReadFile("testdata/test.mp3")
+	if err != nil {
+		t.Skip("testdata/test.mp3 not found")
+	}
+	props := Extract("audio/mpeg", bytes.NewReader(data))
+	if props["audio.format"] == "" {
+		t.Error("expected audio.format from MP3")
+	}
+}
+
+func TestExtract_Audio_GarbageData_NoCrash(t *testing.T) {
+	props := Extract("audio/mpeg", bytes.NewReader([]byte("not an mp3")))
+	_ = props
+}
+
+// ─── Video tests ──────────────────────────────────────────────────────────────
+
+func TestExtract_Video_MP4(t *testing.T) {
+	data, err := os.ReadFile("testdata/test.mp4")
+	if err != nil {
+		t.Skip("testdata/test.mp4 not found")
+	}
+	props := Extract("video/mp4", bytes.NewReader(data))
+	if props["video.duration_s"] == "" {
+		t.Error("expected video.duration_s from MP4")
+	}
+	if props["video.width"] == "" {
+		t.Error("expected video.width from MP4")
+	}
+}
+
+func TestExtract_Video_GarbageData_NoCrash(t *testing.T) {
+	props := Extract("video/mp4", bytes.NewReader([]byte("not a video")))
+	_ = props
+}
