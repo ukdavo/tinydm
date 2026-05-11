@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{block "title" .}}TinyDM{{end}} — TinyDM Admin</title>
-  <link rel="stylesheet" href="/admin/static/style.css">
+  <title>{{block "title" .}}TinyDM{{end}} — TinyDM</title>
+  <link rel="stylesheet" href="/app/static/style.css">
   <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js" defer></script>
 </head>
 <body>
@@ -16,27 +16,29 @@
 
     <p class="sidebar-section">Navigation</p>
     <ul class="sidebar-nav">
-      <li><a href="/admin/" {{if eq .Page "dashboard"}}class="active"{{end}}>
+      <li><a href="/app/" {{if eq .Page "dashboard"}}class="active"{{end}}>
         <span class="icon">◈</span> Dashboard
       </a></li>
-      <li><a href="/admin/projects" {{if eq .Page "projects"}}class="active"{{end}}>
+      <li><a href="/app/projects" {{if eq .Page "projects"}}class="active"{{end}}>
         <span class="icon">⬡</span> Projects
       </a></li>
-      <li><a href="/admin/users" {{if eq .Page "users"}}class="active"{{end}}>
+      {{if eq .Principal.UserType "admin"}}
+      <li><a href="/app/users" {{if eq .Page "users"}}class="active"{{end}}>
         <span class="icon">◎</span> Users
       </a></li>
-      <li><a href="/admin/apikeys" {{if eq .Page "apikeys"}}class="active"{{end}}>
+      <li><a href="/app/apikeys" {{if eq .Page "apikeys"}}class="active"{{end}}>
         <span class="icon">◇</span> API Keys
       </a></li>
-      <li><a href="/admin/audit" {{if eq .Page "audit"}}class="active"{{end}}>
+      <li><a href="/app/audit" {{if eq .Page "audit"}}class="active"{{end}}>
         <span class="icon">◉</span> Audit Log
       </a></li>
+      {{end}}
     </ul>
 
     <div class="sidebar-footer">
       <div class="user-info">Signed in as</div>
       <div class="user-name">{{.Principal.Username}}</div>
-      <a href="/admin/logout" class="btn btn-ghost btn-sm" style="margin-top:8px;width:100%;justify-content:center;">Sign out</a>
+      <a href="/app/logout" class="btn btn-ghost btn-sm" style="margin-top:8px;width:100%;justify-content:center;">Sign out</a>
     </div>
   </aside>
 
