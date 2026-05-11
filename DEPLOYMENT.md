@@ -298,7 +298,35 @@ postgres://user:pass@host:5432/dbname?sslmode=require
 
 | Variable | Default | Description |
 |---|---|---|
-| `TINYDM_STORAGE_PATH` | `data/content` | Directory for content-addressed file storage |
+| `TINYDM_STORAGE_BACKEND` | `local` | Storage driver: `local`, `s3`, `azure`, or `gcs` |
+| `TINYDM_STORAGE_PATH` | `data/content` | Directory for content-addressed file storage (used when `STORAGE_BACKEND=local`) |
+
+**S3** (set `TINYDM_STORAGE_BACKEND=s3`):
+
+| Variable | Default | Description |
+|---|---|---|
+| `TINYDM_S3_BUCKET` | _(required)_ | S3 bucket name |
+| `TINYDM_S3_REGION` | `us-east-1` | S3 region |
+| `TINYDM_S3_KEY_ID` | _(required)_ | AWS access key ID |
+| `TINYDM_S3_SECRET` | _(required)_ | AWS secret access key |
+| `TINYDM_S3_ENDPOINT` | _(empty)_ | Endpoint override — use e.g. `http://localhost:9000` for MinIO |
+
+**Azure Blob Storage** (set `TINYDM_STORAGE_BACKEND=azure`):
+
+| Variable | Default | Description |
+|---|---|---|
+| `TINYDM_AZURE_ACCOUNT` | _(required)_ | Storage account name |
+| `TINYDM_AZURE_KEY` | _(required)_ | Storage account key |
+| `TINYDM_AZURE_CONTAINER` | _(required)_ | Blob container name |
+| `TINYDM_AZURE_ENDPOINT` | _(empty)_ | Endpoint override — use e.g. `http://localhost:10000` for Azurite |
+
+**Google Cloud Storage** (set `TINYDM_STORAGE_BACKEND=gcs`):
+
+| Variable | Default | Description |
+|---|---|---|
+| `TINYDM_GCS_BUCKET` | _(required)_ | GCS bucket name |
+| `TINYDM_GCS_PROJECT` | _(empty)_ | GCP project ID |
+| `TINYDM_GCS_CREDENTIALS_FILE` | _(empty)_ | Path to service account JSON; empty = Application Default Credentials |
 
 ### Authentication
 
@@ -316,7 +344,7 @@ These variables are only used on the very first startup when the database has no
 |---|---|---|
 | `TINYDM_BOOTSTRAP_TENANT_ID` | `default` | ID of the initial tenant |
 | `TINYDM_BOOTSTRAP_TENANT_NAME` | `Default` | Display name of the initial tenant |
-| `TINYDM_BOOTSTRAP_ADMIN_USER` | `admin` | Username of the initial admin |
+| `TINYDM_BOOTSTRAP_ADMIN_USER` | `superadmin` | Username of the initial superadmin |
 | `TINYDM_BOOTSTRAP_ADMIN_EMAIL` | _(empty)_ | Email of the initial admin |
 | `TINYDM_BOOTSTRAP_ADMIN_PASS` | _(empty)_ | Password of the initial admin. **Bootstrap is skipped if this is not set.** |
 
@@ -328,11 +356,12 @@ On the very first startup, if `TINYDM_BOOTSTRAP_ADMIN_PASS` is set and the datab
 
 1. Creates the bootstrap tenant (using `TINYDM_BOOTSTRAP_TENANT_ID` and `TINYDM_BOOTSTRAP_TENANT_NAME`).
 2. Creates a superadmin account with the supplied credentials.
+3. Creates a domain admin account for the bootstrap tenant (username: `admin@<tenant_id>`).
 
 This is a one-time idempotent operation. To sign in via the admin UI, use:
 
 - **Tenant name:** whatever you set for `TINYDM_BOOTSTRAP_TENANT_NAME` (default: `Default`)
-- **Username:** `TINYDM_BOOTSTRAP_ADMIN_USER` (default: `admin`)
+- **Username:** `TINYDM_BOOTSTRAP_ADMIN_USER` (default: `superadmin`)
 - **Password:** `TINYDM_BOOTSTRAP_ADMIN_PASS`
 
 After the first login, change the admin password via the Users section of the admin UI or by creating a new admin account and revoking the original.

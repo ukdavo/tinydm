@@ -118,13 +118,26 @@ All configuration is via environment variables.
 | `TINYDM_DB_DRIVER` | `sqlite` | Database backend: `sqlite` or `postgres` |
 | `TINYDM_DB_PATH` | `tinydm.db` | SQLite database file path (used when `DB_DRIVER=sqlite`) |
 | `TINYDM_DB_DSN` | _(empty)_ | PostgreSQL connection string (required when `DB_DRIVER=postgres`) e.g. `host=localhost user=tinydm dbname=tinydm sslmode=disable` |
-| `TINYDM_STORAGE_PATH` | `data/content` | Directory for stored file content |
+| `TINYDM_STORAGE_PATH` | `data/content` | Directory for content-addressed file storage (used when `STORAGE_BACKEND=local`) |
+| `TINYDM_STORAGE_BACKEND` | `local` | Storage driver: `local`, `s3`, `azure`, or `gcs` |
+| `TINYDM_S3_BUCKET` | _(empty)_ | S3 bucket name (required when `STORAGE_BACKEND=s3`) |
+| `TINYDM_S3_ENDPOINT` | _(empty)_ | S3 endpoint override — set to e.g. `http://localhost:9000` for MinIO |
+| `TINYDM_S3_REGION` | `us-east-1` | S3 region |
+| `TINYDM_S3_KEY_ID` | _(empty)_ | S3 access key ID |
+| `TINYDM_S3_SECRET` | _(empty)_ | S3 secret access key |
+| `TINYDM_AZURE_ACCOUNT` | _(empty)_ | Azure storage account name (required when `STORAGE_BACKEND=azure`) |
+| `TINYDM_AZURE_KEY` | _(empty)_ | Azure storage account key |
+| `TINYDM_AZURE_CONTAINER` | _(empty)_ | Azure blob container name |
+| `TINYDM_AZURE_ENDPOINT` | _(empty)_ | Azure endpoint override — set to e.g. `http://localhost:10000` for Azurite |
+| `TINYDM_GCS_BUCKET` | _(empty)_ | GCS bucket name (required when `STORAGE_BACKEND=gcs`) |
+| `TINYDM_GCS_PROJECT` | _(empty)_ | GCP project ID |
+| `TINYDM_GCS_CREDENTIALS_FILE` | _(empty)_ | Path to service account JSON; empty = Application Default Credentials |
 | `TINYDM_JWT_SECRET` | _(required)_ | Secret used to sign JWTs — use a long random string in production |
 | `TINYDM_JWT_EXPIRY_MINUTES` | `60` | JWT lifetime in minutes |
 | `TINYDM_SECURE_COOKIES` | `false` | Set `true` when serving over HTTPS to mark session cookies Secure |
 | `TINYDM_BOOTSTRAP_TENANT_ID` | `default` | Tenant ID created on first run |
 | `TINYDM_BOOTSTRAP_TENANT_NAME` | `Default` | Tenant display name created on first run |
-| `TINYDM_BOOTSTRAP_ADMIN_USER` | `admin` | Admin username created on first run |
+| `TINYDM_BOOTSTRAP_ADMIN_USER` | `superadmin` | Superadmin username created on first run |
 | `TINYDM_BOOTSTRAP_ADMIN_EMAIL` | _(empty)_ | Admin email created on first run |
 | `TINYDM_BOOTSTRAP_ADMIN_PASS` | _(empty)_ | Admin password on first run — **bootstrap is skipped if unset** |
 
@@ -146,7 +159,7 @@ Both drivers are compiled into every binary. No rebuild is required to switch. M
 On the very first startup, if `TINYDM_BOOTSTRAP_ADMIN_PASS` is set and the database contains no users, TinyDM will:
 
 1. Create the bootstrap tenant (using `TINYDM_BOOTSTRAP_TENANT_ID`)
-2. Create an admin user with the supplied credentials
+2. Create a superadmin account with the supplied credentials
 
 This is a one-time operation — subsequent starts skip it silently.
 
@@ -259,7 +272,7 @@ Interactive documentation is embedded in the binary — no separate tool require
 | `POST` | `/api/v1/auth/login` | None | Exchange credentials for a JWT — body: `{"tenant_id":"…","username":"…","password":"…"}` |
 | `GET` | `/api/v1/auth/me` | Required | Returns the authenticated principal (ID, tenant, role) |
 
-#### Tenants _(admin only for write operations)_
+#### Tenants _(superadmin only for write operations)_
 
 | Method | Path | Description |
 |---|---|---|
@@ -312,12 +325,10 @@ Interactive documentation is embedded in the binary — no separate tool require
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/v1/tenants/{tenantID}/users` | List users _(paginated)_. Password hashes are never returned. |
-| `POST` | `/api/v1/tenants/{tenantID}/users` | Create a user — body: `{"username":"…","email":"…","password":"…","user_type":"admin\|user"}` |
-| `PUT` | `/api/v1/tenants/{tenantID}/users/{userID}/active` | Activate or deactivate a user — body: `{"active":true}` |
-| `DELETE` | `/api/v1/tenants/{tenantID}/users/{userID}` | Delete a user |
+| `PATCH` | `/api/v1/tenants/{tenantID}/users/{userID}/password` | Change a user's password — body: `{"password":"…"}` |
 | `GET` | `/api/v1/tenants/{tenantID}/apikeys` | List API keys _(paginated)_. Hashes and full key values are never returned; only `key_prefix` is exposed. |
 | `POST` | `/api/v1/tenants/{tenantID}/apikeys` | Generate an API key — plaintext returned once only; body: `{"name":"…","expires_at":"…"}` |
-| `DELETE` | `/api/v1/tenants/{tenantID}/apikeys/{keyID}` | Revoke an API key |
+| `POST` | `/api/v1/tenants/{tenantID}/apikeys/{keyID}/revoke` | Revoke an API key |
 
 #### Tags
 

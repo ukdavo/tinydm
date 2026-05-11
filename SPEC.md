@@ -53,8 +53,9 @@ Full REST API for all operations.
 - API Keys
 
 **User Types:**
-- Admin — all rights granted
-- User
+- Superadmin — unrestricted cross-tenant access; cannot be deactivated
+- Admin — unrestricted access within their tenant; bypasses rights checks
+- User — access governed by rights grants
 
 **User Rights:**
 - Create
@@ -66,8 +67,9 @@ Full REST API for all operations.
 Simple web client for administrators.
 
 ### Authentication Methods
-- Basic authentication
-- Secret / API key
+- Basic authentication (username + password)
+- JWT Bearer token (issued via `POST /api/v1/auth/login`)
+- API key (opaque token, scoped to tenant)
 
 ## Tech Stack
 
@@ -77,7 +79,7 @@ Simple web client for administrators.
 | HTTP Framework | Chi | Lightweight, idiomatic, minimal overhead |
 | Database | SQLite (default) / PostgreSQL (optional) | Zero-dependency default; switchable via storage interface |
 | DB Access | sqlc | Type-safe SQL, no ORM magic |
-| File Storage | Local filesystem (abstracted) | Content-addressed storage; interface allows future S3/NFS |
+| File Storage | Local filesystem, S3, Azure Blob, GCS (abstracted) | Content-addressed storage; backend selected via `TINYDM_STORAGE_BACKEND` |
 | Admin UI | HTMX + Go `html/template` | No build step, ships embedded in binary |
 | Auth | bcrypt + JWT + opaque API tokens | Standard, secure, no external dependencies |
 | Packaging | Single binary + Docker | Easy deployment; ~20–30MB Docker image |
@@ -85,8 +87,6 @@ Simple web client for administrators.
 ## Possible Future Features
 
 - Document locking
-- Explicit document versioning
 - Full text indexing
-- Support for multiple content stores (e.g. NFS, S3, etc.)
 - OAuth
 - Associations / relations

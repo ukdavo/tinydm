@@ -179,6 +179,7 @@ The top-level organisational unit. Every other resource belongs to a tenant.
 | `id` | TEXT PK | UUID |
 | `name` | TEXT UNIQUE | Human-readable display name |
 | `description` | TEXT | Optional description |
+| `perm_mode` | TEXT | `'explicit'`, `'open'`, or `'inherit'`; default `'explicit'` |
 | `created_at` | DATETIME | |
 | `updated_at` | DATETIME | |
 | `deleted_at` | DATETIME | NULL = active; set = soft-deleted |
@@ -350,8 +351,10 @@ Accounts that can authenticate via password (JWT or HTTP Basic) within a tenant.
 | `tenant_id` | TEXT FK → `tenants.id` | CASCADE DELETE |
 | `username` | TEXT | Unique within the tenant |
 | `email` | TEXT | Unique within the tenant |
+| `first_name` | TEXT | |
+| `last_name` | TEXT | |
 | `password_hash` | TEXT | bcrypt hash; never exposed via the API |
-| `user_type` | TEXT | `'admin'` or `'user'`; enforced by CHECK constraint |
+| `user_type` | TEXT | `'superadmin'`, `'admin'`, or `'user'`; enforced by CHECK constraint |
 | `is_active` | INTEGER | 1 = active, 0 = deactivated |
 | `created_at` | DATETIME | |
 | `updated_at` | DATETIME | |
@@ -359,7 +362,7 @@ Accounts that can authenticate via password (JWT or HTTP Basic) within a tenant.
 
 **Indexes:** `idx_users_tenant` on `(tenant_id)`
 
-**Design rationale:** `user_type` drives the two-level RBAC model. Admins have unrestricted access to all tenant resources; users rely on `rights` grants for fine-grained access. `is_active` allows accounts to be suspended without deleting them, preserving audit trail references.
+**Design rationale:** `user_type` drives the three-level RBAC model. Superadmins have unrestricted cross-tenant access; admins have unrestricted access within their tenant; users rely on `rights` grants for fine-grained access. `is_active` allows accounts to be suspended without deleting them, preserving audit trail references.
 
 ---
 
@@ -428,9 +431,9 @@ Fine-grained RBAC grants. A right connects a principal (user or API key) to a re
 |---|---|---|
 | `id` | TEXT PK | UUID |
 | `tenant_id` | TEXT FK → `tenants.id` | CASCADE DELETE |
-| `principal_type` | TEXT | `'user'` or `'apikey'`; enforced by CHECK constraint |
-| `principal_id` | TEXT | UUID of the user or API key |
-| `resource_type` | TEXT | `'project'`, `'bucket'`, or `'document'`; enforced by CHECK constraint |
+| `principal_type` | TEXT | `'user'`, `'group'`, or `'apikey'`; enforced by CHECK constraint |
+| `principal_id` | TEXT | UUID of the user, group, or API key |
+| `resource_type` | TEXT | `'tenant'`, `'project'`, `'bucket'`, or `'document'`; enforced by CHECK constraint |
 | `resource_id` | TEXT | UUID of a specific resource, or `'*'` for all resources of that type |
 | `can_create` | INTEGER | 0/1 boolean |
 | `can_read` | INTEGER | 0/1 boolean |
@@ -440,6 +443,18 @@ Fine-grained RBAC grants. A right connects a principal (user or API key) to a re
 **Indexes:** `idx_rights_principal` on `(principal_type, principal_id)`, `idx_rights_tenant` on `(tenant_id)`
 
 **Design rationale:** The `resource_id = '*'` wildcard allows a single row to grant access to all resources of a type (e.g. "this user can read all projects in this tenant") without enumerating every resource. The four separate boolean columns make it straightforward to grant asymmetric rights (e.g. read-only access) without a bitmask. Permission levels are hierarchical: Delete implies Update implies Create implies Read — the UI enforces this by exposing a single level selector rather than independent checkboxes. Admin and superadmin users bypass the rights table entirely; rights are only evaluated for `user`-type principals.
+
+---
+
+### `cluster_nodes`
+
+Tracks running TinyDM instances for heartbeat monitoring and leader election. On single-node or SQLite deployments this table exists but is never written to.
+
+| Column | Type | Notes |
+|---|---|---|
+| `node_id` | TEXT PK | Unique identifier for the process (e.g. hostname + PID) |
+| `last_heartbeat` | TEXT | ISO-8601 timestamp, updated periodically by the node |
+| `is_leader` | INTEGER | 1 = this node is the current cluster leader |
 
 ---
 
@@ -475,8 +490,15 @@ Two migration sets are embedded in the binary — one per driver:
 |---|---|---|---|
 | `migrations/` | SQLite | `001_initial_schema.sql` | Core hierarchy: tenants, projects, buckets, documents, document_versions, document_tags, document_properties, audit_log |
 | `migrations/` | SQLite | `002_auth_schema.sql` | Authentication & authorisation: users, groups, group_members, api_keys, rights |
+| `migrations/` | SQLite | `003_cluster_nodes.sql` | Adds `cluster_nodes` table for heartbeat and leader election |
+| `migrations/` | SQLite | `004_superadmin_role.sql` | Extends `user_type` CHECK to include `'superadmin'` |
+| `migrations/` | SQLite | `005_user_names.sql` | Adds `first_name` and `last_name` columns to `users` |
+| `migrations/` | SQLite | `006_permission_system.sql` | Adds `perm_mode` to `tenants`; widens rights `principal_type` to include `'apikey'`; widens `resource_type` to include `'document'` and `'tenant'` |
 | `migrations_pg/` | PostgreSQL | `001_initial_schema.sql` | Same as above; uses `TIMESTAMPTZ` instead of `DATETIME`, `BIGINT` for sizes |
 | `migrations_pg/` | PostgreSQL | `002_auth_schema.sql` | Same as above; uses `TIMESTAMPTZ` |
+| `migrations_pg/` | PostgreSQL | `003_cluster_nodes.sql` | Same as SQLite 003 |
+| `migrations_pg/` | PostgreSQL | `004_superadmin_role.sql` | Same as SQLite 004 |
+| `migrations_pg/` | PostgreSQL | `005_user_names.sql` | Same as SQLite 005 |
 
 Goose runs all pending migrations automatically on startup. Each migration file contains an `-- +goose Up` block (applied forward) and a `-- +goose Down` block (rollback). This means the schema can be rolled back to any point without manual SQL.
 
