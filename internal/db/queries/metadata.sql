@@ -1,4 +1,4 @@
--- ─── Tags ─────────────────────────────────────────────────────────────────────
+-- Tags
 
 -- name: AddTag :exec
 INSERT OR IGNORE INTO document_tags (document_id, tag) VALUES (?, ?);
@@ -15,7 +15,7 @@ JOIN document_tags t ON t.document_id = d.id
 WHERE t.tag = ? AND d.deleted_at IS NULL
 ORDER BY d.name;
 
--- ─── Custom properties ────────────────────────────────────────────────────────
+-- Custom properties
 
 -- name: SetProperty :exec
 INSERT INTO document_properties (document_id, key, value)

@@ -1,6 +1,6 @@
 -- name: CreateGroup :one
-INSERT INTO groups (id, tenant_id, name, description)
-VALUES (?, ?, ?, ?)
+INSERT INTO groups (id, name, description)
+VALUES (?, ?, ?)
 RETURNING *;
 
 -- name: GetGroup :one
@@ -8,11 +8,11 @@ SELECT * FROM groups WHERE id = ? AND deleted_at IS NULL;
 
 -- name: GetGroupByName :one
 SELECT * FROM groups
-WHERE tenant_id = ? AND name = ? AND deleted_at IS NULL;
+WHERE name = ? AND deleted_at IS NULL;
 
 -- name: ListGroups :many
 SELECT * FROM groups
-WHERE tenant_id = ? AND deleted_at IS NULL
+WHERE deleted_at IS NULL
 ORDER BY name;
 
 -- name: UpdateGroup :one

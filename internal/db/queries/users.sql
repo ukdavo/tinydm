@@ -1,6 +1,6 @@
 -- name: CreateUser :one
-INSERT INTO users (id, tenant_id, username, email, password_hash, user_type)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO users (id, username, email, password_hash, user_type)
+VALUES (?, ?, ?, ?, ?)
 RETURNING *;
 
 -- name: GetUser :one
@@ -8,15 +8,15 @@ SELECT * FROM users WHERE id = ? AND deleted_at IS NULL;
 
 -- name: GetUserByUsername :one
 SELECT * FROM users
-WHERE tenant_id = ? AND username = ? AND deleted_at IS NULL;
+WHERE username = ? AND deleted_at IS NULL;
 
 -- name: GetUserByEmail :one
 SELECT * FROM users
-WHERE tenant_id = ? AND email = ? AND deleted_at IS NULL;
+WHERE email = ? AND deleted_at IS NULL;
 
 -- name: ListUsers :many
 SELECT * FROM users
-WHERE tenant_id = ? AND deleted_at IS NULL
+WHERE deleted_at IS NULL
 ORDER BY username;
 
 -- name: UpdateUser :one
