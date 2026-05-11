@@ -104,7 +104,7 @@ func createNonAdminToken(t *testing.T, authStore *auth.Store) string {
 	return token
 }
 
-// TestAuditLog_Renders verifies that GET /admin/audit returns 200.
+// TestAuditLog_Renders verifies that GET /app/audit returns 200.
 func TestAuditLog_Renders(t *testing.T) {
 	srv, _, _, _, token := newWebServer(t)
 
@@ -120,23 +120,23 @@ func TestAuditLog_Renders(t *testing.T) {
 	}
 }
 
-// TestAuditLog_GlobalRouteGone verifies the old /admin/tenants route no longer exists.
+// TestAuditLog_GlobalRouteGone verifies the old /app/tenants route no longer exists.
 func TestAuditLog_GlobalRouteGone(t *testing.T) {
 	srv, _, _, _, token := newWebServer(t)
 
 	req := sessionReq(t, http.MethodGet, srv.URL+"/app/tenants", token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("GET /admin/tenants: %v", err)
+		t.Fatalf("GET /app/tenants: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
-		t.Errorf("expected /admin/tenants to be gone (not 200), got %d", resp.StatusCode)
+		t.Errorf("expected /app/tenants to be gone (not 200), got %d", resp.StatusCode)
 	}
 }
 
-// TestPasswordForm_ReturnsInputFragment verifies that GET /admin/users/{id}/password-form
+// TestPasswordForm_ReturnsInputFragment verifies that GET /app/users/{id}/password-form
 // returns an HTML fragment containing a password input for the user.
 func TestPasswordForm_ReturnsInputFragment(t *testing.T) {
 	srv, _, _, user, token := newWebServer(t)
@@ -166,7 +166,7 @@ func TestPasswordForm_ReturnsInputFragment(t *testing.T) {
 	}
 }
 
-// TestPasswordChange_Web_ReturnsUserRow verifies that POST /admin/users/{id}/password
+// TestPasswordChange_Web_ReturnsUserRow verifies that POST /app/users/{id}/password
 // returns the refreshed user-row HTML so HTMX can swap the form row back.
 func TestPasswordChange_Web_ReturnsUserRow(t *testing.T) {
 	srv, _, _, user, token := newWebServer(t)
@@ -200,7 +200,7 @@ func TestPasswordChange_Web_ReturnsUserRow(t *testing.T) {
 	}
 }
 
-// TestAPIKeysPage_Renders verifies that GET /admin/apikeys returns 200.
+// TestAPIKeysPage_Renders verifies that GET /app/apikeys returns 200.
 func TestAPIKeysPage_Renders(t *testing.T) {
 	srv, _, _, _, token := newWebServer(t)
 
@@ -217,7 +217,7 @@ func TestAPIKeysPage_Renders(t *testing.T) {
 	}
 }
 
-// TestUsersPage_Renders verifies that GET /admin/users returns 200 and
+// TestUsersPage_Renders verifies that GET /app/users returns 200 and
 // includes the perm_mode card and no template errors.
 func TestUsersPage_Renders(t *testing.T) {
 	srv, _, _, _, token := newWebServer(t)
@@ -235,14 +235,14 @@ func TestUsersPage_Renders(t *testing.T) {
 	}
 }
 
-// TestDashboardPage_Renders verifies that GET /admin/ returns 200.
+// TestDashboardPage_Renders verifies that GET /app/ returns 200.
 func TestDashboardPage_Renders(t *testing.T) {
 	srv, _, _, _, token := newWebServer(t)
 
 	req := sessionReq(t, http.MethodGet, srv.URL+"/app/", token, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("GET /admin/: %v", err)
+		t.Fatalf("GET /app/: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -252,7 +252,7 @@ func TestDashboardPage_Renders(t *testing.T) {
 	}
 }
 
-// TestProjectsPage_Renders verifies that GET /admin/projects returns 200.
+// TestProjectsPage_Renders verifies that GET /app/projects returns 200.
 func TestProjectsPage_Renders(t *testing.T) {
 	srv, _, repoStore, _, token := newWebServer(t)
 
@@ -270,7 +270,7 @@ func TestProjectsPage_Renders(t *testing.T) {
 	_ = repoStore
 }
 
-// TestBucketsPage_Renders verifies that GET /admin/projects/{projectID}/buckets returns 200.
+// TestBucketsPage_Renders verifies that GET /app/projects/{projectID}/buckets returns 200.
 func TestBucketsPage_Renders(t *testing.T) {
 	srv, _, repoStore, _, token := newWebServer(t)
 
@@ -322,7 +322,7 @@ func TestDocumentsPage_Renders(t *testing.T) {
 	}
 }
 
-// TestDocumentDetailPage_Renders verifies that GET /admin/documents/{documentID} returns 200.
+// TestDocumentDetailPage_Renders verifies that GET /app/documents/{documentID} returns 200.
 func TestDocumentDetailPage_Renders(t *testing.T) {
 	srv, _, repoStore, user, token := newWebServer(t)
 

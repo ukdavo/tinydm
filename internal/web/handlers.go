@@ -444,7 +444,7 @@ type usersData struct {
 	Pager WebPagination
 }
 
-// users renders GET /admin/users
+// users renders GET /app/users
 func (h *Handler) users(w http.ResponseWriter, r *http.Request) {
 	page, limit := parsePage(r)
 	users, total, _ := h.auth.ListUsers(r.Context(), limit, pageOffset(page, limit))
@@ -455,7 +455,7 @@ func (h *Handler) users(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// createUser handles POST /admin/users
+// createUser handles POST /app/users
 func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
 	email := r.FormValue("email")
@@ -488,7 +488,7 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
 	h.renderPartial(w, "users", "user-row", user)
 }
 
-// userRow handles GET /admin/users/{userID}/row
+// userRow handles GET /app/users/{userID}/row
 //
 // Returns the normal user-row partial. Used by the Cancel button in the
 // inline password-change form to restore the row to its display state.
@@ -502,7 +502,7 @@ func (h *Handler) userRow(w http.ResponseWriter, r *http.Request) {
 	h.renderPartial(w, "users", "user-row", user)
 }
 
-// passwordForm handles GET /admin/users/{userID}/password-form
+// passwordForm handles GET /app/users/{userID}/password-form
 //
 // Returns the inline password-change row partial so HTMX can swap the normal
 // user row with an editable form.
@@ -516,7 +516,7 @@ func (h *Handler) passwordForm(w http.ResponseWriter, r *http.Request) {
 	h.renderPartial(w, "users", "user-change-password-row", user)
 }
 
-// changeUserPassword handles POST /admin/users/{userID}/password
+// changeUserPassword handles POST /app/users/{userID}/password
 //
 // Reads the new password from the form body, validates a minimum length of 8,
 // hashes it, updates the user, then returns the refreshed user-row partial so
