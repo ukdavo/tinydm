@@ -1375,6 +1375,7 @@ type resourceRightsPage struct {
 	ResourceType string
 	ResourceID   string
 	ResourceName string
+	ParentID     string
 	Rights       []ResourceRight
 	Users        []*auth.User
 	APIKeys      []*auth.APIKey
@@ -1794,6 +1795,7 @@ func (h *Handler) bucketRightsPanel(w http.ResponseWriter, r *http.Request) {
 		ResourceType: "bucket",
 		ResourceID:   bucketID,
 		ResourceName: bucket.Name,
+		ParentID:     project.ID,
 		Rights:       h.resolveRightNames(r.Context(), raw),
 		Users:        users,
 		APIKeys:      keys,
@@ -1850,6 +1852,7 @@ func (h *Handler) addBucketRight(w http.ResponseWriter, r *http.Request) {
 		ResourceType: "bucket",
 		ResourceID:   bucketID,
 		ResourceName: bucket.Name,
+		ParentID:     project.ID,
 		Rights:       h.resolveRightNames(r.Context(), raw),
 		Users:        users,
 		APIKeys:      keys,
@@ -1881,6 +1884,7 @@ func (h *Handler) removeBucketRight(w http.ResponseWriter, r *http.Request) {
 		ResourceType: "bucket",
 		ResourceID:   bucketID,
 		ResourceName: bucket.Name,
+		ParentID:     project.ID,
 		Rights:       h.resolveRightNames(r.Context(), raw),
 		Users:        users,
 		APIKeys:      keys,

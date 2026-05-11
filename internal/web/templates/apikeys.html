@@ -64,7 +64,6 @@
   </div>
 </div>
 {{template "pagination" .Pager}}
-<div id="rights-panel-area"></div>
 {{end}}
 
 {{define "apikey-row"}}
@@ -84,12 +83,6 @@
   <td class="text-right">
     <div class="flex gap-8 items-center" style="justify-content:flex-end;">
       {{if not .RevokedAt.Valid}}
-      <button class="btn btn-ghost btn-sm"
-        hx-get="/admin/tenants/{{.TenantID}}/apikeys/{{.ID}}/rights"
-        hx-target="#rights-panel-area"
-        hx-swap="innerHTML">
-        Rights
-      </button>
       <button class="btn btn-danger btn-sm"
         hx-post="/admin/tenants/{{.TenantID}}/apikeys/{{.ID}}/revoke"
         hx-target="#key-{{.ID}}"

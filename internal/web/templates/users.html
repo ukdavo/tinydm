@@ -78,7 +78,6 @@
   </div>
 </div>
 {{template "pagination" .Pager}}
-<div id="rights-panel-area"></div>
 {{end}}
 
 {{define "user-row"}}
@@ -109,12 +108,6 @@
         hx-target="#user-{{.ID}}"
         hx-swap="outerHTML">
         Change Password
-      </button>
-      <button class="btn btn-ghost btn-sm"
-        hx-get="/admin/tenants/{{.TenantID}}/users/{{.ID}}/rights"
-        hx-target="#rights-panel-area"
-        hx-swap="innerHTML">
-        Rights
       </button>
       {{if eq (string .UserType) "user"}}
         {{if .IsActive}}

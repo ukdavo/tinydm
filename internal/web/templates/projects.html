@@ -80,6 +80,7 @@
   </div>
 </div>
 {{template "pagination" .Pager}}
+<div id="rights-panel-area"></div>
 {{end}}
 
 {{define "project-row"}}
@@ -88,6 +89,12 @@
   <td class="muted">{{.Description}}</td>
   <td class="muted">—</td>
   <td class="text-right">
+    <button class="btn btn-ghost btn-sm"
+      hx-get="/admin/tenants/{{.TenantID}}/projects/{{.ID}}/rights"
+      hx-target="#rights-panel-area"
+      hx-swap="innerHTML">
+      Rights
+    </button>
     <button class="btn btn-danger btn-sm"
       hx-delete="/admin/tenants/{{.TenantID}}/projects/{{.ID}}"
       hx-target="#project-{{.ID}}"
@@ -97,4 +104,83 @@
     </button>
   </td>
 </tr>
+{{end}}
+
+{{define "project-rights-panel"}}
+<div class="card" id="project-rights-panel-{{.ResourceID}}">
+  <div style="padding:12px 16px;border-bottom:1px solid var(--border);">
+    <strong>Rights — {{.ResourceName}}</strong>
+  </div>
+  {{if .Rights}}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Principal</th>
+          <th>Create</th><th>Read</th><th>Update</th><th>Delete</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Rights}}
+        <tr>
+          <td>
+            <span class="badge badge-gray">{{.PrincipalType}}</span>
+            {{.PrincipalName}}
+          </td>
+          <td>{{if .CanCreate}}✓{{else}}–{{end}}</td>
+          <td>{{if .CanRead}}✓{{else}}–{{end}}</td>
+          <td>{{if .CanUpdate}}✓{{else}}–{{end}}</td>
+          <td>{{if .CanDelete}}✓{{else}}–{{end}}</td>
+          <td class="text-right">
+            <button class="btn btn-danger btn-sm"
+              hx-delete="/admin/tenants/{{$.Tenant.ID}}/projects/{{$.ResourceID}}/rights"
+              hx-vals='{"principal":"{{.PrincipalType | js}}:{{.PrincipalID | js}}"}'
+              hx-target="#project-rights-panel-{{$.ResourceID}}"
+              hx-swap="outerHTML">
+              Remove
+            </button>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="empty-state"><p>No rights granted yet.</p></div>
+  {{end}}
+  <div class="inline-form" style="padding:12px 16px;border-top:1px solid var(--border);">
+    <div class="form-group">
+      <label>Principal</label>
+      <select name="principal" id="pr-principal-{{.ResourceID}}">
+        <optgroup label="Users">
+          {{range .Users}}
+          <option value="user:{{.ID}}">{{.Username}}</option>
+          {{end}}
+        </optgroup>
+        <optgroup label="API Keys">
+          {{range .APIKeys}}
+          <option value="apikey:{{.ID}}">{{.Name}} ({{.KeyPrefix}}…)</option>
+          {{end}}
+        </optgroup>
+      </select>
+    </div>
+    <div class="form-group" style="flex-direction:row;gap:8px;align-items:center;">
+      <label><input type="checkbox" name="can_create" id="pr-cc-{{.ResourceID}}"> Create</label>
+      <label><input type="checkbox" name="can_read"   id="pr-cr-{{.ResourceID}}"> Read</label>
+      <label><input type="checkbox" name="can_update" id="pr-cu-{{.ResourceID}}"> Update</label>
+      <label><input type="checkbox" name="can_delete" id="pr-cd-{{.ResourceID}}"> Delete</label>
+    </div>
+    <div class="form-group" style="flex-direction:row;gap:8px;align-items:center;">
+      <label><input type="checkbox" name="cascade" id="pr-cas-{{.ResourceID}}"> Cascade to all buckets and documents</label>
+    </div>
+    <button class="btn btn-primary"
+      hx-post="/admin/tenants/{{.Tenant.ID}}/projects/{{.ResourceID}}/rights"
+      hx-include="#pr-principal-{{.ResourceID}},#pr-cc-{{.ResourceID}},#pr-cr-{{.ResourceID}},#pr-cu-{{.ResourceID}},#pr-cd-{{.ResourceID}},#pr-cas-{{.ResourceID}}"
+      hx-target="#project-rights-panel-{{.ResourceID}}"
+      hx-swap="outerHTML">
+      Grant
+    </button>
+  </div>
+</div>
 {{end}}
