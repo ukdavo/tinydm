@@ -1,7 +1,7 @@
 {{define "title"}}API Keys{{end}}
 {{define "content"}}
 <div class="breadcrumb">
-  <a href="/admin/projects">Projects</a>
+  <a href="/app/projects">Projects</a>
   <span class="sep">›</span>
   <span class="current">API Keys</span>
 </div>
@@ -52,7 +52,7 @@
       <input type="text" name="name" id="new-key-name" placeholder="ci-deploy" required>
     </div>
     <button class="btn btn-primary"
-      hx-post="/admin/apikeys"
+      hx-post="/app/apikeys"
       hx-include="#new-key-name"
       hx-target="body"
       hx-push-url="true"
@@ -82,7 +82,7 @@
     <div class="flex gap-8 items-center" style="justify-content:flex-end;">
       {{if not .RevokedAt.Valid}}
       <button class="btn btn-danger btn-sm"
-        hx-post="/admin/apikeys/{{.ID}}/revoke"
+        hx-post="/app/apikeys/{{.ID}}/revoke"
         hx-target="#key-{{.ID}}"
         hx-swap="outerHTML"
         hx-confirm="Revoke key '{{.Name}}'? This cannot be undone.">
@@ -119,7 +119,7 @@
           <td>{{if .CanDelete}}✓{{else}}–{{end}}</td>
           <td class="text-right">
             <button class="btn btn-danger btn-sm"
-              hx-delete="/admin/apikeys/{{$.Key.ID}}/rights"
+              hx-delete="/app/apikeys/{{$.Key.ID}}/rights"
               hx-vals='{"resource_type":"{{.ResourceType | js}}","resource_id":"{{.ResourceID | js}}"}'
               hx-target="#apikey-rights-panel-{{$.Key.ID}}"
               hx-swap="outerHTML">
@@ -154,7 +154,7 @@
       <label><input type="checkbox" name="can_delete" id="krd-{{.Key.ID}}"> Delete</label>
     </div>
     <button class="btn btn-primary"
-      hx-post="/admin/apikeys/{{.Key.ID}}/rights"
+      hx-post="/app/apikeys/{{.Key.ID}}/rights"
       hx-include="#krt-{{.Key.ID}},#krid-{{.Key.ID}},#krc-{{.Key.ID}},#krr-{{.Key.ID}},#kru-{{.Key.ID}},#krd-{{.Key.ID}}"
       hx-target="#apikey-rights-panel-{{.Key.ID}}"
       hx-swap="outerHTML">

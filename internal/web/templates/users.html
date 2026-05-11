@@ -1,7 +1,7 @@
 {{define "title"}}Users{{end}}
 {{define "content"}}
 <div class="breadcrumb">
-  <a href="/admin/projects">Projects</a>
+  <a href="/app/projects">Projects</a>
   <span class="sep">›</span>
   <span class="current">Users</span>
 </div>
@@ -64,7 +64,7 @@
       </select>
     </div>
     <button class="btn btn-primary"
-      hx-post="/admin/users"
+      hx-post="/app/users"
       hx-include="#new-user-name,#new-user-first,#new-user-last,#new-user-email,#new-user-pass,#new-user-role"
       hx-target="#users-list"
       hx-swap="beforeend"
@@ -100,7 +100,7 @@
   <td class="text-right">
     <div class="flex gap-8 items-center" style="justify-content:flex-end;">
       <button class="btn btn-ghost btn-sm"
-        hx-get="/admin/users/{{.ID}}/password-form"
+        hx-get="/app/users/{{.ID}}/password-form"
         hx-target="#user-{{.ID}}"
         hx-swap="outerHTML">
         Change Password
@@ -108,21 +108,21 @@
       {{if eq (string .UserType) "user"}}
         {{if .IsActive}}
         <button class="btn btn-ghost btn-sm"
-          hx-post="/admin/users/{{.ID}}/deactivate"
+          hx-post="/app/users/{{.ID}}/deactivate"
           hx-target="#user-{{.ID}}"
           hx-swap="outerHTML">
           Deactivate
         </button>
         {{else}}
         <button class="btn btn-ghost btn-sm"
-          hx-post="/admin/users/{{.ID}}/activate"
+          hx-post="/app/users/{{.ID}}/activate"
           hx-target="#user-{{.ID}}"
           hx-swap="outerHTML">
           Activate
         </button>
         {{end}}
         <button class="btn btn-danger btn-sm"
-          hx-delete="/admin/users/{{.ID}}"
+          hx-delete="/app/users/{{.ID}}"
           hx-target="#user-{{.ID}}"
           hx-swap="outerHTML"
           hx-confirm="Delete user '{{.Username}}'?">
@@ -144,14 +144,14 @@
                placeholder="New password (8+ chars)" minlength="8" autocomplete="new-password">
       </div>
       <button class="btn btn-primary btn-sm"
-        hx-post="/admin/users/{{.ID}}/password"
+        hx-post="/app/users/{{.ID}}/password"
         hx-include="#pwd-new-{{.ID}}"
         hx-target="#user-{{.ID}}"
         hx-swap="outerHTML">
         Save
       </button>
       <button class="btn btn-ghost btn-sm"
-        hx-get="/admin/users/{{.ID}}/row"
+        hx-get="/app/users/{{.ID}}/row"
         hx-target="#user-{{.ID}}"
         hx-swap="outerHTML">
         Cancel
@@ -187,7 +187,7 @@
           <td>{{if .CanDelete}}✓{{else}}–{{end}}</td>
           <td class="text-right">
             <button class="btn btn-danger btn-sm"
-              hx-delete="/admin/users/{{$.User.ID}}/rights"
+              hx-delete="/app/users/{{$.User.ID}}/rights"
               hx-vals='{"resource_type":"{{.ResourceType | js}}","resource_id":"{{.ResourceID | js}}"}'
               hx-target="#user-rights-panel-{{$.User.ID}}"
               hx-swap="outerHTML">
@@ -222,7 +222,7 @@
       <label><input type="checkbox" name="can_delete" id="rd-{{.User.ID}}"> Delete</label>
     </div>
     <button class="btn btn-primary"
-      hx-post="/admin/users/{{.User.ID}}/rights"
+      hx-post="/app/users/{{.User.ID}}/rights"
       hx-include="#rt-{{.User.ID}},#rid-{{.User.ID}},#rc-{{.User.ID}},#rr-{{.User.ID}},#ru-{{.User.ID}},#rd-{{.User.ID}}"
       hx-target="#user-rights-panel-{{.User.ID}}"
       hx-swap="outerHTML">

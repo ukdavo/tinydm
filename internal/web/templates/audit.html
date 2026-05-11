@@ -1,7 +1,7 @@
 {{define "title"}}Audit Log{{end}}
 {{define "content"}}
 <div class="breadcrumb">
-  <a href="/admin/projects">Projects</a>
+  <a href="/app/projects">Projects</a>
   <span class="sep">›</span>
   <span class="current">Audit Log</span>
 </div>
@@ -13,7 +13,7 @@
 <div class="card">
   <!-- Filter bar -->
   <div class="filter-bar"
-       hx-get="/admin/audit/events"
+       hx-get="/app/audit/events"
        hx-trigger="change from:.filter-bar, keyup changed delay:400ms from:#filter-action,#filter-principal"
        hx-target="#audit-rows"
        hx-swap="innerHTML"
