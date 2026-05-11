@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"os"
 	"testing"
 )
 
@@ -145,6 +146,45 @@ func TestExtract_Image_GarbageData(t *testing.T) {
 	props := Extract("image/jpeg", bytes.NewReader([]byte("this is not an image")))
 	if len(props) != 0 {
 		t.Errorf("expected empty props for garbage image data, got %v", props)
+	}
+}
+
+// ─── JPEG EXIF tests ──────────────────────────────────────────────────────────
+
+func TestExtract_JPEG_EXIF_Make(t *testing.T) {
+	data, err := os.ReadFile("testdata/with_exif.jpg")
+	if err != nil {
+		t.Skip("testdata/with_exif.jpg not found — skipping EXIF test")
+	}
+	props := Extract("image/jpeg", bytes.NewReader(data))
+	if _, ok := props["image.make"]; !ok {
+		t.Error("expected image.make property from EXIF JPEG")
+	}
+}
+
+func TestExtract_JPEG_EXIF_Dimensions(t *testing.T) {
+	data, err := os.ReadFile("testdata/with_exif.jpg")
+	if err != nil {
+		t.Skip("testdata/with_exif.jpg not found — skipping EXIF test")
+	}
+	props := Extract("image/jpeg", bytes.NewReader(data))
+	if props["image.width"] == "" {
+		t.Error("expected image.width from EXIF JPEG")
+	}
+	if props["image.height"] == "" {
+		t.Error("expected image.height from EXIF JPEG")
+	}
+}
+
+func TestExtract_JPEG_NoEXIF_NoCrash(t *testing.T) {
+	// A minimal JPEG without EXIF should still return width/height, no crash.
+	data := makeJPEG(100, 80)
+	props := Extract("image/jpeg", bytes.NewReader(data))
+	if props["image.width"] != "100" {
+		t.Errorf("image.width: got %q, want %q", props["image.width"], "100")
+	}
+	if _, ok := props["image.make"]; ok {
+		t.Error("expected no image.make for JPEG without EXIF")
 	}
 }
 
