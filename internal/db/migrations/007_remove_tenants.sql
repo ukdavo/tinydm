@@ -115,6 +115,8 @@ ALTER TABLE rights_v2 RENAME TO rights;
 CREATE INDEX IF NOT EXISTS idx_rights_principal ON rights(principal_type, principal_id);
 
 -- 6. Drop tenant_id from audit_log (SQLite 3.35+)
+-- Must drop the index first; SQLite rejects DROP COLUMN while an index references it.
+DROP INDEX IF EXISTS idx_audit_tenant;
 ALTER TABLE audit_log DROP COLUMN tenant_id;
 
 -- 7. Drop the tenants table
