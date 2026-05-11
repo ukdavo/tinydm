@@ -1130,7 +1130,8 @@ func (h *Handler) buildDocDetailData(r *http.Request, doc *repo.Document) (docum
 
 	tenantID := project.TenantID
 	rawRights, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "document", doc.ID)
-	docUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	allDocUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	docUsers := filterNonAdminUsers(allDocUsers)
 	docKeys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
 
 	data := documentDetailData{
@@ -1426,16 +1427,17 @@ func (h *Handler) addUserRight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cc, cr, cu, cd := permLevelToFlags(r.FormValue("perm_level"))
 	params := auth.UpsertRightParams{
 		TenantID:      tenantID,
 		PrincipalType: "user",
 		PrincipalID:   userID,
 		ResourceType:  r.FormValue("resource_type"),
 		ResourceID:    r.FormValue("resource_id"),
-		CanCreate:     r.FormValue("can_create") == "on",
-		CanRead:       r.FormValue("can_read") == "on",
-		CanUpdate:     r.FormValue("can_update") == "on",
-		CanDelete:     r.FormValue("can_delete") == "on",
+		CanCreate:     cc,
+		CanRead:       cr,
+		CanUpdate:     cu,
+		CanDelete:     cd,
 	}
 	if params.ResourceID == "" {
 		params.ResourceID = "*"
@@ -1518,16 +1520,17 @@ func (h *Handler) addAPIKeyRight(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
+	cc, cr, cu, cd := permLevelToFlags(r.FormValue("perm_level"))
 	params := auth.UpsertRightParams{
 		TenantID:      tenantID,
 		PrincipalType: "apikey",
 		PrincipalID:   keyID,
 		ResourceType:  r.FormValue("resource_type"),
 		ResourceID:    r.FormValue("resource_id"),
-		CanCreate:     r.FormValue("can_create") == "on",
-		CanRead:       r.FormValue("can_read") == "on",
-		CanUpdate:     r.FormValue("can_update") == "on",
-		CanDelete:     r.FormValue("can_delete") == "on",
+		CanCreate:     cc,
+		CanRead:       cr,
+		CanUpdate:     cu,
+		CanDelete:     cd,
 	}
 	if params.ResourceID == "" {
 		params.ResourceID = "*"
@@ -1643,6 +1646,50 @@ func (h *Handler) cascadeBucketRight(ctx context.Context, base auth.UpsertRightP
 	}
 }
 
+// permLevelToFlags converts a hierarchical perm level to individual CRUD booleans.
+// Each level implies all lower levels: delete→update→create→read.
+func permLevelToFlags(level string) (canCreate, canRead, canUpdate, canDelete bool) {
+	switch level {
+	case "delete":
+		return true, true, true, true
+	case "update":
+		return true, true, true, false
+	case "create":
+		return true, true, false, false
+	case "read":
+		return false, true, false, false
+	default:
+		return false, false, false, false
+	}
+}
+
+// filterNonAdminUsers returns only users with UserType == "user" (excludes admins/superadmins).
+func filterNonAdminUsers(users []*auth.User) []*auth.User {
+	out := users[:0:0]
+	for _, u := range users {
+		if u.UserType == auth.UserTypeUser {
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
+// PermLevel returns the effective permission level label for display.
+func (rr ResourceRight) PermLevel() string {
+	switch {
+	case rr.CanDelete:
+		return "Delete"
+	case rr.CanUpdate:
+		return "Update"
+	case rr.CanCreate:
+		return "Create"
+	case rr.CanRead:
+		return "Read"
+	default:
+		return "None"
+	}
+}
+
 // ── Perm mode handler ─────────────────────────────────────────────────────────
 
 func (h *Handler) setPermMode(w http.ResponseWriter, r *http.Request) {
@@ -1678,7 +1725,8 @@ func (h *Handler) projectRightsPanel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "project", projectID)
-	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	users := filterNonAdminUsers(allUsers)
 	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
 	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
 	h.renderPartial(w, "projects", "project-rights-panel", resourceRightsPage{
@@ -1710,16 +1758,17 @@ func (h *Handler) addProjectRight(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid principal", http.StatusBadRequest)
 		return
 	}
+	cc, cr, cu, cd := permLevelToFlags(r.FormValue("perm_level"))
 	params := auth.UpsertRightParams{
 		TenantID:      tenantID,
 		PrincipalType: pt,
 		PrincipalID:   pid,
 		ResourceType:  "project",
 		ResourceID:    projectID,
-		CanCreate:     r.FormValue("can_create") == "on",
-		CanRead:       r.FormValue("can_read") == "on",
-		CanUpdate:     r.FormValue("can_update") == "on",
-		CanDelete:     r.FormValue("can_delete") == "on",
+		CanCreate:     cc,
+		CanRead:       cr,
+		CanUpdate:     cu,
+		CanDelete:     cd,
 	}
 	if err := h.auth.UpsertRight(r.Context(), params); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1729,7 +1778,8 @@ func (h *Handler) addProjectRight(w http.ResponseWriter, r *http.Request) {
 		h.cascadeProjectRight(r.Context(), params)
 	}
 	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "project", projectID)
-	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	users := filterNonAdminUsers(allUsers)
 	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
 	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
 	h.renderPartial(w, "projects", "project-rights-panel", resourceRightsPage{
@@ -1755,7 +1805,8 @@ func (h *Handler) removeProjectRight(w http.ResponseWriter, r *http.Request) {
 	pt, pid, _ := parsePrincipal(r.FormValue("principal"))
 	_ = h.auth.DeleteRight(r.Context(), tenantID, pt, pid, "project", projectID)
 	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "project", projectID)
-	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	users := filterNonAdminUsers(allUsers)
 	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
 	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
 	h.renderPartial(w, "projects", "project-rights-panel", resourceRightsPage{
@@ -1786,7 +1837,8 @@ func (h *Handler) bucketRightsPanel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "bucket", bucketID)
-	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	users := filterNonAdminUsers(allUsers)
 	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
 	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
 	h.renderPartial(w, "buckets", "bucket-rights-panel", resourceRightsPage{
@@ -1824,16 +1876,17 @@ func (h *Handler) addBucketRight(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid principal", http.StatusBadRequest)
 		return
 	}
+	cc, cr, cu, cd := permLevelToFlags(r.FormValue("perm_level"))
 	params := auth.UpsertRightParams{
 		TenantID:      tenantID,
 		PrincipalType: pt,
 		PrincipalID:   pid,
 		ResourceType:  "bucket",
 		ResourceID:    bucketID,
-		CanCreate:     r.FormValue("can_create") == "on",
-		CanRead:       r.FormValue("can_read") == "on",
-		CanUpdate:     r.FormValue("can_update") == "on",
-		CanDelete:     r.FormValue("can_delete") == "on",
+		CanCreate:     cc,
+		CanRead:       cr,
+		CanUpdate:     cu,
+		CanDelete:     cd,
 	}
 	if err := h.auth.UpsertRight(r.Context(), params); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1843,7 +1896,8 @@ func (h *Handler) addBucketRight(w http.ResponseWriter, r *http.Request) {
 		h.cascadeBucketRight(r.Context(), params)
 	}
 	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "bucket", bucketID)
-	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	users := filterNonAdminUsers(allUsers)
 	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
 	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
 	h.renderPartial(w, "buckets", "bucket-rights-panel", resourceRightsPage{
@@ -1875,7 +1929,8 @@ func (h *Handler) removeBucketRight(w http.ResponseWriter, r *http.Request) {
 	pt, pid, _ := parsePrincipal(r.FormValue("principal"))
 	_ = h.auth.DeleteRight(r.Context(), tenantID, pt, pid, "bucket", bucketID)
 	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "bucket", bucketID)
-	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	users := filterNonAdminUsers(allUsers)
 	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
 	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
 	h.renderPartial(w, "buckets", "bucket-rights-panel", resourceRightsPage{
@@ -1907,7 +1962,8 @@ func (h *Handler) documentRightsPanel(w http.ResponseWriter, r *http.Request) {
 	}
 	tenantID := project.TenantID
 	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "document", documentID)
-	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	users := filterNonAdminUsers(allUsers)
 	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
 	h.renderPartial(w, "docdetail", "document-rights-panel", resourceRightsPage{
 		basePage:     h.base(r, "docdetail"),
@@ -1943,23 +1999,25 @@ func (h *Handler) addDocumentRight(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid principal", http.StatusBadRequest)
 		return
 	}
+	cc, cr, cu, cd := permLevelToFlags(r.FormValue("perm_level"))
 	params := auth.UpsertRightParams{
 		TenantID:      tenantID,
 		PrincipalType: pt,
 		PrincipalID:   pid,
 		ResourceType:  "document",
 		ResourceID:    documentID,
-		CanCreate:     r.FormValue("can_create") == "on",
-		CanRead:       r.FormValue("can_read") == "on",
-		CanUpdate:     r.FormValue("can_update") == "on",
-		CanDelete:     r.FormValue("can_delete") == "on",
+		CanCreate:     cc,
+		CanRead:       cr,
+		CanUpdate:     cu,
+		CanDelete:     cd,
 	}
 	if err := h.auth.UpsertRight(r.Context(), params); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "document", documentID)
-	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	users := filterNonAdminUsers(allUsers)
 	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
 	h.renderPartial(w, "docdetail", "document-rights-panel", resourceRightsPage{
 		basePage:     h.base(r, "docdetail"),
@@ -1989,7 +2047,8 @@ func (h *Handler) removeDocumentRight(w http.ResponseWriter, r *http.Request) {
 	pt, pid, _ := parsePrincipal(r.FormValue("principal"))
 	_ = h.auth.DeleteRight(r.Context(), tenantID, pt, pid, "document", documentID)
 	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "document", documentID)
-	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	users := filterNonAdminUsers(allUsers)
 	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
 	h.renderPartial(w, "docdetail", "document-rights-panel", resourceRightsPage{
 		basePage:     h.base(r, "docdetail"),
