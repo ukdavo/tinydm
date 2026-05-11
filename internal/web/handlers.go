@@ -1079,6 +1079,9 @@ type documentDetailData struct {
 	UserProps []docProperty
 	SysProps  []docProperty
 	Versions  []*repo.DocumentVersion
+	Rights    []ResourceRight
+	Users     []*auth.User
+	APIKeys   []*auth.APIKey
 }
 
 // resolveDocumentContext walks bucket → project → tenant for a given document.
@@ -1125,7 +1128,12 @@ func (h *Handler) buildDocDetailData(r *http.Request, doc *repo.Document) (docum
 
 	versions, _, _ := h.repo.ListDocumentVersions(r.Context(), doc.ID, repo.PageOpts{Limit: 500})
 
-	return documentDetailData{
+	tenantID := project.TenantID
+	rawRights, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "document", doc.ID)
+	docUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	docKeys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+
+	data := documentDetailData{
 		basePage:  h.base(r, "documents"),
 		Doc:       doc,
 		Tenant:    tenant,
@@ -1135,7 +1143,11 @@ func (h *Handler) buildDocDetailData(r *http.Request, doc *repo.Document) (docum
 		UserProps: userProps,
 		SysProps:  sysProps,
 		Versions:  versions,
-	}, nil
+		Rights:    h.resolveRightNames(r.Context(), rawRights),
+		Users:     docUsers,
+		APIKeys:   docKeys,
+	}
+	return data, nil
 }
 
 func (h *Handler) documentDetail(w http.ResponseWriter, r *http.Request) {
@@ -1351,6 +1363,23 @@ type apiKeyRightsPage struct {
 	Rights []auth.Right
 }
 
+// ResourceRight is a Right with a resolved display name for the principal.
+type ResourceRight struct {
+	auth.Right
+	PrincipalName string
+}
+
+type resourceRightsPage struct {
+	basePage
+	Tenant       *repo.Tenant
+	ResourceType string
+	ResourceID   string
+	ResourceName string
+	Rights       []ResourceRight
+	Users        []*auth.User
+	APIKeys      []*auth.APIKey
+}
+
 // ── User rights handlers ──────────────────────────────────────────────────────
 
 func (h *Handler) userRightsPanel(w http.ResponseWriter, r *http.Request) {
@@ -1554,6 +1583,65 @@ func (h *Handler) removeAPIKeyRight(w http.ResponseWriter, r *http.Request) {
 	h.renderPartial(w, "apikeys", "apikey-rights-panel", data)
 }
 
+// ── Per-resource rights helpers ───────────────────────────────────────────────
+
+// resolveRightNames enriches raw rights with principal display names.
+func (h *Handler) resolveRightNames(ctx context.Context, rights []auth.Right) []ResourceRight {
+	out := make([]ResourceRight, 0, len(rights))
+	for _, r := range rights {
+		rr := ResourceRight{Right: r}
+		if r.PrincipalType == "user" {
+			if u, _ := h.auth.GetUserByID(ctx, r.PrincipalID); u != nil {
+				rr.PrincipalName = u.Username
+			}
+		} else if r.PrincipalType == "apikey" {
+			if k, _ := h.auth.GetAPIKeyByID(ctx, r.PrincipalID); k != nil {
+				rr.PrincipalName = k.Name + " (" + k.KeyPrefix + "…)"
+			}
+		}
+		out = append(out, rr)
+	}
+	return out
+}
+
+// parsePrincipal splits "user:uuid" or "apikey:uuid" form values.
+func parsePrincipal(v string) (principalType, principalID string, ok bool) {
+	i := strings.IndexByte(v, ':')
+	if i < 1 {
+		return "", "", false
+	}
+	return v[:i], v[i+1:], true
+}
+
+// cascadeProjectRight copies a project right down to all its buckets and documents.
+func (h *Handler) cascadeProjectRight(ctx context.Context, base auth.UpsertRightParams) {
+	buckets, _, _ := h.repo.ListBuckets(ctx, base.ResourceID, repo.PageOpts{Limit: repo.MaxPageLimit})
+	for _, b := range buckets {
+		p := base
+		p.ResourceType = "bucket"
+		p.ResourceID = b.ID
+		_ = h.auth.UpsertRight(ctx, p)
+		docs, _, _ := h.repo.ListDocuments(ctx, b.ID, repo.PageOpts{Limit: repo.MaxPageLimit})
+		for _, d := range docs {
+			pd := base
+			pd.ResourceType = "document"
+			pd.ResourceID = d.ID
+			_ = h.auth.UpsertRight(ctx, pd)
+		}
+	}
+}
+
+// cascadeBucketRight copies a bucket right down to all its documents.
+func (h *Handler) cascadeBucketRight(ctx context.Context, base auth.UpsertRightParams) {
+	docs, _, _ := h.repo.ListDocuments(ctx, base.ResourceID, repo.PageOpts{Limit: repo.MaxPageLimit})
+	for _, d := range docs {
+		p := base
+		p.ResourceType = "document"
+		p.ResourceID = d.ID
+		_ = h.auth.UpsertRight(ctx, p)
+	}
+}
+
 // ── Perm mode handler ─────────────────────────────────────────────────────────
 
 func (h *Handler) setPermMode(w http.ResponseWriter, r *http.Request) {
@@ -1574,4 +1662,339 @@ func (h *Handler) setPermMode(w http.ResponseWriter, r *http.Request) {
 	// Return a small success partial that replaces just the select element label.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<span class="badge badge-green">Saved</span>`)
+}
+
+// ── Per-resource rights handlers ──────────────────────────────────────────────
+
+// ── Project rights ────────────────────────────────────────────────────────────
+
+func (h *Handler) projectRightsPanel(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	projectID := chi.URLParam(r, "projectID")
+	project, err := h.repo.GetProject(r.Context(), projectID)
+	if err != nil || project == nil || project.TenantID != tenantID {
+		http.NotFound(w, r)
+		return
+	}
+	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "project", projectID)
+	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
+	h.renderPartial(w, "projects", "project-rights-panel", resourceRightsPage{
+		basePage:     h.base(r, "projects"),
+		Tenant:       tenant,
+		ResourceType: "project",
+		ResourceID:   projectID,
+		ResourceName: project.Name,
+		Rights:       h.resolveRightNames(r.Context(), raw),
+		Users:        users,
+		APIKeys:      keys,
+	})
+}
+
+func (h *Handler) addProjectRight(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	projectID := chi.URLParam(r, "projectID")
+	project, err := h.repo.GetProject(r.Context(), projectID)
+	if err != nil || project == nil || project.TenantID != tenantID {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	pt, pid, ok := parsePrincipal(r.FormValue("principal"))
+	if !ok {
+		http.Error(w, "invalid principal", http.StatusBadRequest)
+		return
+	}
+	params := auth.UpsertRightParams{
+		TenantID:      tenantID,
+		PrincipalType: pt,
+		PrincipalID:   pid,
+		ResourceType:  "project",
+		ResourceID:    projectID,
+		CanCreate:     r.FormValue("can_create") == "on",
+		CanRead:       r.FormValue("can_read") == "on",
+		CanUpdate:     r.FormValue("can_update") == "on",
+		CanDelete:     r.FormValue("can_delete") == "on",
+	}
+	if err := h.auth.UpsertRight(r.Context(), params); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if r.FormValue("cascade") == "on" {
+		h.cascadeProjectRight(r.Context(), params)
+	}
+	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "project", projectID)
+	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
+	h.renderPartial(w, "projects", "project-rights-panel", resourceRightsPage{
+		basePage:     h.base(r, "projects"),
+		Tenant:       tenant,
+		ResourceType: "project",
+		ResourceID:   projectID,
+		ResourceName: project.Name,
+		Rights:       h.resolveRightNames(r.Context(), raw),
+		Users:        users,
+		APIKeys:      keys,
+	})
+}
+
+func (h *Handler) removeProjectRight(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	projectID := chi.URLParam(r, "projectID")
+	project, err := h.repo.GetProject(r.Context(), projectID)
+	if err != nil || project == nil || project.TenantID != tenantID {
+		http.NotFound(w, r)
+		return
+	}
+	pt, pid, _ := parsePrincipal(r.FormValue("principal"))
+	_ = h.auth.DeleteRight(r.Context(), tenantID, pt, pid, "project", projectID)
+	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "project", projectID)
+	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
+	h.renderPartial(w, "projects", "project-rights-panel", resourceRightsPage{
+		basePage:     h.base(r, "projects"),
+		Tenant:       tenant,
+		ResourceType: "project",
+		ResourceID:   projectID,
+		ResourceName: project.Name,
+		Rights:       h.resolveRightNames(r.Context(), raw),
+		Users:        users,
+		APIKeys:      keys,
+	})
+}
+
+// ── Bucket rights ─────────────────────────────────────────────────────────────
+
+func (h *Handler) bucketRightsPanel(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	bucketID := chi.URLParam(r, "bucketID")
+	bucket, err := h.repo.GetBucket(r.Context(), bucketID)
+	if err != nil || bucket == nil {
+		http.NotFound(w, r)
+		return
+	}
+	project, err := h.repo.GetProject(r.Context(), bucket.ProjectID)
+	if err != nil || project == nil || project.TenantID != tenantID {
+		http.NotFound(w, r)
+		return
+	}
+	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "bucket", bucketID)
+	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
+	h.renderPartial(w, "buckets", "bucket-rights-panel", resourceRightsPage{
+		basePage:     h.base(r, "buckets"),
+		Tenant:       tenant,
+		ResourceType: "bucket",
+		ResourceID:   bucketID,
+		ResourceName: bucket.Name,
+		Rights:       h.resolveRightNames(r.Context(), raw),
+		Users:        users,
+		APIKeys:      keys,
+	})
+}
+
+func (h *Handler) addBucketRight(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	bucketID := chi.URLParam(r, "bucketID")
+	bucket, err := h.repo.GetBucket(r.Context(), bucketID)
+	if err != nil || bucket == nil {
+		http.NotFound(w, r)
+		return
+	}
+	project, err := h.repo.GetProject(r.Context(), bucket.ProjectID)
+	if err != nil || project == nil || project.TenantID != tenantID {
+		http.NotFound(w, r)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	pt, pid, ok := parsePrincipal(r.FormValue("principal"))
+	if !ok {
+		http.Error(w, "invalid principal", http.StatusBadRequest)
+		return
+	}
+	params := auth.UpsertRightParams{
+		TenantID:      tenantID,
+		PrincipalType: pt,
+		PrincipalID:   pid,
+		ResourceType:  "bucket",
+		ResourceID:    bucketID,
+		CanCreate:     r.FormValue("can_create") == "on",
+		CanRead:       r.FormValue("can_read") == "on",
+		CanUpdate:     r.FormValue("can_update") == "on",
+		CanDelete:     r.FormValue("can_delete") == "on",
+	}
+	if err := h.auth.UpsertRight(r.Context(), params); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if r.FormValue("cascade") == "on" {
+		h.cascadeBucketRight(r.Context(), params)
+	}
+	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "bucket", bucketID)
+	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
+	h.renderPartial(w, "buckets", "bucket-rights-panel", resourceRightsPage{
+		basePage:     h.base(r, "buckets"),
+		Tenant:       tenant,
+		ResourceType: "bucket",
+		ResourceID:   bucketID,
+		ResourceName: bucket.Name,
+		Rights:       h.resolveRightNames(r.Context(), raw),
+		Users:        users,
+		APIKeys:      keys,
+	})
+}
+
+func (h *Handler) removeBucketRight(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	bucketID := chi.URLParam(r, "bucketID")
+	bucket, err := h.repo.GetBucket(r.Context(), bucketID)
+	if err != nil || bucket == nil {
+		http.NotFound(w, r)
+		return
+	}
+	project, err := h.repo.GetProject(r.Context(), bucket.ProjectID)
+	if err != nil || project == nil || project.TenantID != tenantID {
+		http.NotFound(w, r)
+		return
+	}
+	pt, pid, _ := parsePrincipal(r.FormValue("principal"))
+	_ = h.auth.DeleteRight(r.Context(), tenantID, pt, pid, "bucket", bucketID)
+	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "bucket", bucketID)
+	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
+	h.renderPartial(w, "buckets", "bucket-rights-panel", resourceRightsPage{
+		basePage:     h.base(r, "buckets"),
+		Tenant:       tenant,
+		ResourceType: "bucket",
+		ResourceID:   bucketID,
+		ResourceName: bucket.Name,
+		Rights:       h.resolveRightNames(r.Context(), raw),
+		Users:        users,
+		APIKeys:      keys,
+	})
+}
+
+// ── Document rights ───────────────────────────────────────────────────────────
+
+func (h *Handler) documentRightsPanel(w http.ResponseWriter, r *http.Request) {
+	documentID := chi.URLParam(r, "documentID")
+	doc, err := h.repo.GetDocument(r.Context(), documentID)
+	if err != nil || doc == nil {
+		http.NotFound(w, r)
+		return
+	}
+	tenant, project, _, err := h.resolveDocumentContext(r.Context(), doc)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tenantID := project.TenantID
+	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "document", documentID)
+	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+	h.renderPartial(w, "docdetail", "document-rights-panel", resourceRightsPage{
+		basePage:     h.base(r, "docdetail"),
+		Tenant:       tenant,
+		ResourceType: "document",
+		ResourceID:   documentID,
+		ResourceName: doc.Name,
+		Rights:       h.resolveRightNames(r.Context(), raw),
+		Users:        users,
+		APIKeys:      keys,
+	})
+}
+
+func (h *Handler) addDocumentRight(w http.ResponseWriter, r *http.Request) {
+	documentID := chi.URLParam(r, "documentID")
+	doc, err := h.repo.GetDocument(r.Context(), documentID)
+	if err != nil || doc == nil {
+		http.NotFound(w, r)
+		return
+	}
+	tenant, project, _, err := h.resolveDocumentContext(r.Context(), doc)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tenantID := project.TenantID
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	pt, pid, ok := parsePrincipal(r.FormValue("principal"))
+	if !ok {
+		http.Error(w, "invalid principal", http.StatusBadRequest)
+		return
+	}
+	params := auth.UpsertRightParams{
+		TenantID:      tenantID,
+		PrincipalType: pt,
+		PrincipalID:   pid,
+		ResourceType:  "document",
+		ResourceID:    documentID,
+		CanCreate:     r.FormValue("can_create") == "on",
+		CanRead:       r.FormValue("can_read") == "on",
+		CanUpdate:     r.FormValue("can_update") == "on",
+		CanDelete:     r.FormValue("can_delete") == "on",
+	}
+	if err := h.auth.UpsertRight(r.Context(), params); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "document", documentID)
+	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+	h.renderPartial(w, "docdetail", "document-rights-panel", resourceRightsPage{
+		basePage:     h.base(r, "docdetail"),
+		Tenant:       tenant,
+		ResourceType: "document",
+		ResourceID:   documentID,
+		ResourceName: doc.Name,
+		Rights:       h.resolveRightNames(r.Context(), raw),
+		Users:        users,
+		APIKeys:      keys,
+	})
+}
+
+func (h *Handler) removeDocumentRight(w http.ResponseWriter, r *http.Request) {
+	documentID := chi.URLParam(r, "documentID")
+	doc, err := h.repo.GetDocument(r.Context(), documentID)
+	if err != nil || doc == nil {
+		http.NotFound(w, r)
+		return
+	}
+	tenant, project, _, err := h.resolveDocumentContext(r.Context(), doc)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tenantID := project.TenantID
+	pt, pid, _ := parsePrincipal(r.FormValue("principal"))
+	_ = h.auth.DeleteRight(r.Context(), tenantID, pt, pid, "document", documentID)
+	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "document", documentID)
+	users, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+	h.renderPartial(w, "docdetail", "document-rights-panel", resourceRightsPage{
+		basePage:     h.base(r, "docdetail"),
+		Tenant:       tenant,
+		ResourceType: "document",
+		ResourceID:   documentID,
+		ResourceName: doc.Name,
+		Rights:       h.resolveRightNames(r.Context(), raw),
+		Users:        users,
+		APIKeys:      keys,
+	})
 }
