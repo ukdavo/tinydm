@@ -76,7 +76,7 @@ func (h *Handler) parseTemplates() {
 	)
 
 	pages := []string{
-		"dashboard", "tenants", "projects", "buckets",
+		"dashboard", "projects", "buckets",
 		"documents", "docdetail", "users", "apikeys", "audit",
 	}
 	for _, page := range pages {
@@ -110,28 +110,23 @@ func RegisterRoutes(r chi.Router, h *Handler) {
 		r.Get("/admin/", h.dashboard)
 		r.Get("/admin", h.dashboard)
 
-		// Tenants
-		r.Get("/admin/tenants", h.tenants)
-		r.Post("/admin/tenants", h.createTenant)
-		r.Delete("/admin/tenants/{tenantID}", h.deleteTenant)
-
 		// Projects
-		r.Get("/admin/tenants/{tenantID}/projects", h.projects)
-		r.Post("/admin/tenants/{tenantID}/projects", h.createProject)
-		r.Delete("/admin/tenants/{tenantID}/projects/{projectID}", h.deleteProject)
+		r.Get("/admin/projects", h.projects)
+		r.Post("/admin/projects", h.createProject)
+		r.Delete("/admin/projects/{projectID}", h.deleteProject)
 
 		// Buckets
-		r.Get("/admin/tenants/{tenantID}/projects/{projectID}/buckets", h.buckets)
-		r.Post("/admin/tenants/{tenantID}/projects/{projectID}/buckets", h.createBucket)
-		r.Get("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/edit", h.editBucketForm)
-		r.Get("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/row", h.bucketRowPartial)
-		r.Put("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}", h.updateBucket)
-		r.Delete("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}", h.deleteBucket)
+		r.Get("/admin/projects/{projectID}/buckets", h.buckets)
+		r.Post("/admin/projects/{projectID}/buckets", h.createBucket)
+		r.Get("/admin/projects/{projectID}/buckets/{bucketID}/edit", h.editBucketForm)
+		r.Get("/admin/projects/{projectID}/buckets/{bucketID}/row", h.bucketRowPartial)
+		r.Put("/admin/projects/{projectID}/buckets/{bucketID}", h.updateBucket)
+		r.Delete("/admin/projects/{projectID}/buckets/{bucketID}", h.deleteBucket)
 
 		// Documents list
-		r.Get("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/documents", h.documents)
-		r.Post("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/documents", h.uploadDocument)
-		r.Get("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/documents/rows", h.documentRows)
+		r.Get("/admin/projects/{projectID}/buckets/{bucketID}/documents", h.documents)
+		r.Post("/admin/projects/{projectID}/buckets/{bucketID}/documents", h.uploadDocument)
+		r.Get("/admin/projects/{projectID}/buckets/{bucketID}/documents/rows", h.documentRows)
 
 		// Document detail / edit
 		r.Get("/admin/documents/{documentID}", h.documentDetail)
@@ -152,9 +147,9 @@ func RegisterRoutes(r chi.Router, h *Handler) {
 		// Document version restore
 		r.Post("/admin/documents/{documentID}/versions/{versionID}/restore", h.restoreDocumentVersionWeb)
 
-		// Users — scoped to tenant
-		r.Get("/admin/tenants/{tenantID}/users", h.tenantUsers)
-		r.Post("/admin/tenants/{tenantID}/users", h.createTenantUser)
+		// Users
+		r.Get("/admin/users", h.users)
+		r.Post("/admin/users", h.createUser)
 		r.Post("/admin/users/{userID}/activate", h.activateUser)
 		r.Post("/admin/users/{userID}/deactivate", h.deactivateUser)
 		r.Get("/admin/users/{userID}/row", h.userRow)
@@ -162,40 +157,37 @@ func RegisterRoutes(r chi.Router, h *Handler) {
 		r.Post("/admin/users/{userID}/password", h.changeUserPassword)
 		r.Delete("/admin/users/{userID}", h.deleteUser)
 
-		// API keys — scoped to tenant
-		r.Get("/admin/tenants/{tenantID}/apikeys", h.tenantAPIKeys)
-		r.Post("/admin/tenants/{tenantID}/apikeys", h.createTenantAPIKey)
-		r.Post("/admin/tenants/{tenantID}/apikeys/{keyID}/revoke", h.revokeTenantAPIKey)
+		// API keys
+		r.Get("/admin/apikeys", h.apiKeys)
+		r.Post("/admin/apikeys", h.createAPIKey)
+		r.Post("/admin/apikeys/{keyID}/revoke", h.revokeAPIKey)
 
 		// Rights management — users
-			r.Get("/admin/tenants/{tenantID}/users/{userID}/rights", h.userRightsPanel)
-			r.Post("/admin/tenants/{tenantID}/users/{userID}/rights", h.addUserRight)
-			r.Delete("/admin/tenants/{tenantID}/users/{userID}/rights", h.removeUserRight)
+		r.Get("/admin/users/{userID}/rights", h.userRightsPanel)
+		r.Post("/admin/users/{userID}/rights", h.addUserRight)
+		r.Delete("/admin/users/{userID}/rights", h.removeUserRight)
 
-			// Rights management — API keys
-			r.Get("/admin/tenants/{tenantID}/apikeys/{keyID}/rights", h.apiKeyRightsPanel)
-			r.Post("/admin/tenants/{tenantID}/apikeys/{keyID}/rights", h.addAPIKeyRight)
-			r.Delete("/admin/tenants/{tenantID}/apikeys/{keyID}/rights", h.removeAPIKeyRight)
+		// Rights management — API keys
+		r.Get("/admin/apikeys/{keyID}/rights", h.apiKeyRightsPanel)
+		r.Post("/admin/apikeys/{keyID}/rights", h.addAPIKeyRight)
+		r.Delete("/admin/apikeys/{keyID}/rights", h.removeAPIKeyRight)
 
-			// Per-resource rights
-			r.Get("/admin/tenants/{tenantID}/projects/{projectID}/rights", h.projectRightsPanel)
-			r.Post("/admin/tenants/{tenantID}/projects/{projectID}/rights", h.addProjectRight)
-			r.Delete("/admin/tenants/{tenantID}/projects/{projectID}/rights", h.removeProjectRight)
+		// Per-resource rights
+		r.Get("/admin/projects/{projectID}/rights", h.projectRightsPanel)
+		r.Post("/admin/projects/{projectID}/rights", h.addProjectRight)
+		r.Delete("/admin/projects/{projectID}/rights", h.removeProjectRight)
 
-			r.Get("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/rights", h.bucketRightsPanel)
-			r.Post("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/rights", h.addBucketRight)
-			r.Delete("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/rights", h.removeBucketRight)
+		r.Get("/admin/projects/{projectID}/buckets/{bucketID}/rights", h.bucketRightsPanel)
+		r.Post("/admin/projects/{projectID}/buckets/{bucketID}/rights", h.addBucketRight)
+		r.Delete("/admin/projects/{projectID}/buckets/{bucketID}/rights", h.removeBucketRight)
 
-			r.Get("/admin/documents/{documentID}/rights", h.documentRightsPanel)
-			r.Post("/admin/documents/{documentID}/rights", h.addDocumentRight)
-			r.Delete("/admin/documents/{documentID}/rights", h.removeDocumentRight)
+		r.Get("/admin/documents/{documentID}/rights", h.documentRightsPanel)
+		r.Post("/admin/documents/{documentID}/rights", h.addDocumentRight)
+		r.Delete("/admin/documents/{documentID}/rights", h.removeDocumentRight)
 
-			// Tenant permission mode
-			r.Post("/admin/tenants/{tenantID}/settings/permmode", h.setPermMode)
-
-		// Audit log — scoped to tenant
-		r.Get("/admin/tenants/{tenantID}/audit", h.auditLog)
-		r.Get("/admin/tenants/{tenantID}/audit/events", h.auditEvents) // HTMX partial
+		// Audit log
+		r.Get("/admin/audit", h.auditLog)
+		r.Get("/admin/audit/events", h.auditEvents)
 	})
 
 	// Redirect / → /admin/
@@ -227,7 +219,6 @@ func (h *Handler) requireSession(next http.Handler) http.Handler {
 		}
 		ctx := auth.WithPrincipal(r.Context(), auth.Principal{
 			ID:       user.ID,
-			TenantID: user.TenantID,
 			Username: user.Username,
 			UserType: user.UserType,
 		})
