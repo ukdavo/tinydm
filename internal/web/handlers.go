@@ -379,10 +379,16 @@ type bucketRow struct {
 	DocCount int
 }
 
+type projectStats struct {
+	Buckets   int
+	Documents int
+}
+
 type bucketsData struct {
 	basePage
 	Tenant  *repo.Tenant
 	Project *repo.Project
+	Stats   projectStats
 	Buckets []bucketRow
 	Pager   WebPagination
 }
@@ -410,10 +416,15 @@ func (h *Handler) buckets(w http.ResponseWriter, r *http.Request) {
 		rows = append(rows, bucketRow{Bucket: b, TenantID: tenantID, DocCount: n})
 	}
 
+	var stats projectStats
+	stats.Buckets, _ = h.repo.CountBucketsInProject(r.Context(), projectID)
+	stats.Documents, _ = h.repo.CountDocumentsInProject(r.Context(), projectID)
+
 	h.render(w, "buckets", bucketsData{
 		basePage: h.base(r, "buckets"),
 		Tenant:   tenant,
 		Project:  project,
+		Stats:    stats,
 		Buckets:  rows,
 		Pager:    newWebPagination(total, page, limit, ""),
 	})
