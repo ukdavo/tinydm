@@ -13,13 +13,11 @@ import (
 type ctxKey string
 
 const (
-	tenantKey   ctxKey = "tenant"
 	projectKey  ctxKey = "project"
 	bucketKey   ctxKey = "bucket"
 	documentKey ctxKey = "document"
 	versionKey  ctxKey = "version"
 	rightsKey   ctxKey = "rights"
-	permModeKey ctxKey = "permMode"
 )
 
 // ─── Resource context middleware ──────────────────────────────────────────────
@@ -27,62 +25,21 @@ const (
 // parent ownership, and stores the record in the request context.
 // A 404 is returned immediately if the resource does not exist.
 
-// TenantCtx loads the tenant identified by {tenantID} into the context,
-// and also stores its perm_mode for use by RightsCtx and CanMiddleware.
-func TenantCtx(repoStore *repo.Store, authStore *auth.Store) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			id := chi.URLParam(r, "tenantID")
-			tenant, err := repoStore.GetTenant(r.Context(), id)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, "internal error")
-				return
-			}
-			if tenant == nil {
-				writeError(w, http.StatusNotFound, "tenant not found")
-				return
-			}
-			mode, err := authStore.GetTenantPermMode(r.Context(), id)
-			if err != nil {
-				mode = auth.PermModeExplicit // fail-safe
-			}
-			ctx := contextWith(r.Context(), tenantKey, tenant)
-			ctx = contextWith(ctx, permModeKey, mode)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
-}
-
 // RightsCtx loads the authenticated principal's rights into the context.
-// It must run after RequireAuth and TenantCtx.
+// It must run after RequireAuth.
 func RightsCtx(authStore *auth.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p, ok := auth.PrincipalFromContext(r.Context())
-			if !ok {
-				next.ServeHTTP(w, r)
-				return
-			}
-			// Admins bypass rights checks — no need to load rights.
-			if p.IsAdmin() {
-				next.ServeHTTP(w, r)
-				return
-			}
-			tenant := tenantFromCtx(r)
-			if tenant == nil {
+			if !ok || p.IsAdmin() {
 				next.ServeHTTP(w, r)
 				return
 			}
 			var rights []auth.Right
-			var err error
 			if p.AuthMethod == auth.AuthMethodAPIKey {
-				rights, err = authStore.GetAPIKeyRights(r.Context(), tenant.ID, p.ID)
+				rights, _ = authStore.GetAPIKeyRights(r.Context(), p.ID)
 			} else {
-				rights, err = authStore.GetUserRights(r.Context(), tenant.ID, p.ID)
-			}
-			if err != nil {
-				// Fail-safe: no rights loaded means all Can() checks deny.
-				rights = nil
+				rights, _ = authStore.GetUserRights(r.Context(), p.ID)
 			}
 			ctx := contextWith(r.Context(), rightsKey, rights)
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -95,7 +52,7 @@ func RightsCtx(authStore *auth.Store) func(http.Handler) http.Handler {
 // getAncestors are called at request time to extract the resource ID and
 // ancestor chain from URL params and context.
 func CanMiddleware(
-	authStore *auth.Store,
+	mode auth.PermMode,
 	action auth.Action,
 	resourceType auth.ResourceType,
 	getResourceID func(*http.Request) string,
@@ -108,18 +65,11 @@ func CanMiddleware(
 				writeError(w, http.StatusUnauthorized, "authentication required")
 				return
 			}
-			// Admins bypass all permission checks.
 			if p.IsAdmin() {
 				next.ServeHTTP(w, r)
 				return
 			}
-
-			mode, _ := r.Context().Value(permModeKey).(auth.PermMode)
-			if mode == "" {
-				mode = auth.PermModeExplicit
-			}
 			rights, _ := r.Context().Value(rightsKey).([]auth.Right)
-
 			resourceID := "*"
 			if getResourceID != nil {
 				resourceID = getResourceID(r)
@@ -128,7 +78,6 @@ func CanMiddleware(
 			if getAncestors != nil {
 				ancestors = getAncestors(r)
 			}
-
 			if !auth.Can(p, rights, mode, action, resourceType, resourceID, ancestors...) {
 				writeError(w, http.StatusForbidden, "permission denied")
 				return
@@ -138,19 +87,17 @@ func CanMiddleware(
 	}
 }
 
-// ProjectCtx loads the project identified by {projectID} and verifies it
-// belongs to the tenant already in context.
+// ProjectCtx loads the project identified by {projectID} into the context.
 func ProjectCtx(store *repo.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			tenant := tenantFromCtx(r)
 			id := chi.URLParam(r, "projectID")
 			project, err := store.GetProject(r.Context(), id)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "internal error")
 				return
 			}
-			if project == nil || project.TenantID != tenant.ID {
+			if project == nil {
 				writeError(w, http.StatusNotFound, "project not found")
 				return
 			}
@@ -201,12 +148,28 @@ func DocumentCtx(store *repo.Store) func(http.Handler) http.Handler {
 	}
 }
 
-// ─── Context accessors ────────────────────────────────────────────────────────
-
-func tenantFromCtx(r *http.Request) *repo.Tenant {
-	t, _ := r.Context().Value(tenantKey).(*repo.Tenant)
-	return t
+// VersionCtx loads the document version identified by {versionID} and verifies
+// it belongs to the document already in context.
+func VersionCtx(store *repo.Store) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			doc := documentFromCtx(r)
+			id := chi.URLParam(r, "versionID")
+			v, err := store.GetDocumentVersion(r.Context(), id, doc.ID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "internal error")
+				return
+			}
+			if v == nil {
+				writeError(w, http.StatusNotFound, "version not found")
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(contextWith(r.Context(), versionKey, v)))
+		})
+	}
 }
+
+// ─── Context accessors ────────────────────────────────────────────────────────
 
 func projectFromCtx(r *http.Request) *repo.Project {
 	p, _ := r.Context().Value(projectKey).(*repo.Project)
@@ -230,25 +193,4 @@ func versionFromCtx(r *http.Request) *repo.DocumentVersion {
 
 func contextWith(ctx context.Context, key ctxKey, val any) context.Context {
 	return context.WithValue(ctx, key, val)
-}
-
-// VersionCtx loads the document version identified by {versionID} and verifies
-// it belongs to the document already in context.
-func VersionCtx(store *repo.Store) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			doc := documentFromCtx(r)
-			id := chi.URLParam(r, "versionID")
-			v, err := store.GetDocumentVersion(r.Context(), id, doc.ID)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, "internal error")
-				return
-			}
-			if v == nil {
-				writeError(w, http.StatusNotFound, "version not found")
-				return
-			}
-			next.ServeHTTP(w, r.WithContext(contextWith(r.Context(), versionKey, v)))
-		})
-	}
 }
