@@ -1,11 +1,9 @@
 {{define "title"}}Documents{{end}}
 {{define "content"}}
 <div class="breadcrumb">
-  <a href="/admin/tenants">Tenants</a>
+  <a href="/admin/projects">Projects</a>
   <span class="sep">›</span>
-  <a href="/admin/tenants/{{.Tenant.ID}}/projects">{{.Tenant.Name}}</a>
-  <span class="sep">›</span>
-  <a href="/admin/tenants/{{.Tenant.ID}}/projects/{{.Project.ID}}/buckets">{{.Project.Name}}</a>
+  <a href="/admin/projects/{{.Project.ID}}/buckets">{{.Project.Name}}</a>
   <span class="sep">›</span>
   <span class="current">{{.Bucket.Name}}</span>
 </div>
@@ -29,7 +27,7 @@
 <div class="card" style="margin-bottom:16px;">
   <div class="card-header"><h2>Upload Document</h2></div>
   <div class="card-body">
-    <form hx-post="/admin/tenants/{{.Tenant.ID}}/projects/{{.Project.ID}}/buckets/{{.Bucket.ID}}/documents"
+    <form hx-post="/admin/projects/{{.Project.ID}}/buckets/{{.Bucket.ID}}/documents"
           hx-target="#docs-list"
           hx-swap="beforeend"
           hx-encoding="multipart/form-data"
@@ -60,7 +58,7 @@
       <div class="form-group">
         <label>Search</label>
         <input type="text" name="q" id="doc-search" placeholder="Filter by name…"
-          hx-get="/admin/tenants/{{.Tenant.ID}}/projects/{{.Project.ID}}/buckets/{{.Bucket.ID}}/documents/rows"
+          hx-get="/admin/projects/{{.Project.ID}}/buckets/{{.Bucket.ID}}/documents/rows"
           hx-target="#docs-list"
           hx-swap="innerHTML"
           hx-trigger="input delay:300ms"
@@ -69,7 +67,7 @@
       <div class="form-group">
         <label>Tag</label>
         <input type="text" name="tag" id="doc-tag-filter" placeholder="Filter by tag…"
-          hx-get="/admin/tenants/{{.Tenant.ID}}/projects/{{.Project.ID}}/buckets/{{.Bucket.ID}}/documents/rows"
+          hx-get="/admin/projects/{{.Project.ID}}/buckets/{{.Bucket.ID}}/documents/rows"
           hx-target="#docs-list"
           hx-swap="innerHTML"
           hx-trigger="input delay:300ms"

@@ -1,18 +1,14 @@
 {{define "title"}}Users{{end}}
 {{define "content"}}
 <div class="breadcrumb">
-  <a href="/admin/tenants">Tenants</a>
-  <span class="sep">›</span>
-  <a href="/admin/tenants/{{.Tenant.ID}}/projects">{{.Tenant.Name}}</a>
+  <a href="/admin/projects">Projects</a>
   <span class="sep">›</span>
   <span class="current">Users</span>
 </div>
 
 <div class="page-header">
-  <div><h1>Users</h1><p>Tenant: <strong>{{.Tenant.ID}}</strong></p></div>
+  <div><h1>Users</h1></div>
 </div>
-
-{{template "tenant-perm-mode-card" .PermModeTenant}}
 
 <div class="card">
   <div class="table-wrap">
@@ -68,7 +64,7 @@
       </select>
     </div>
     <button class="btn btn-primary"
-      hx-post="/admin/tenants/{{.Tenant.ID}}/users"
+      hx-post="/admin/users"
       hx-include="#new-user-name,#new-user-first,#new-user-last,#new-user-email,#new-user-pass,#new-user-role"
       hx-target="#users-list"
       hx-swap="beforeend"
@@ -191,7 +187,7 @@
           <td>{{if .CanDelete}}✓{{else}}–{{end}}</td>
           <td class="text-right">
             <button class="btn btn-danger btn-sm"
-              hx-delete="/admin/tenants/{{$.Tenant.ID}}/users/{{$.User.ID}}/rights"
+              hx-delete="/admin/users/{{$.User.ID}}/rights"
               hx-vals='{"resource_type":"{{.ResourceType | js}}","resource_id":"{{.ResourceID | js}}"}'
               hx-target="#user-rights-panel-{{$.User.ID}}"
               hx-swap="outerHTML">
@@ -226,33 +222,12 @@
       <label><input type="checkbox" name="can_delete" id="rd-{{.User.ID}}"> Delete</label>
     </div>
     <button class="btn btn-primary"
-      hx-post="/admin/tenants/{{.Tenant.ID}}/users/{{.User.ID}}/rights"
+      hx-post="/admin/users/{{.User.ID}}/rights"
       hx-include="#rt-{{.User.ID}},#rid-{{.User.ID}},#rc-{{.User.ID}},#rr-{{.User.ID}},#ru-{{.User.ID}},#rd-{{.User.ID}}"
       hx-target="#user-rights-panel-{{.User.ID}}"
       hx-swap="outerHTML">
       Add Right
     </button>
-  </div>
-</div>
-{{end}}
-
-{{define "tenant-perm-mode-card"}}
-<div class="card" style="margin-bottom:16px;">
-  <div style="padding:14px 16px;border-bottom:1px solid var(--border);">
-    <strong>Access policy</strong>
-  </div>
-  <div style="padding:14px 16px;display:flex;align-items:center;gap:12px;">
-    <label style="font-size:13px;font-weight:500;">Default permission mode</label>
-    <select name="perm_mode" id="perm-mode-{{.ID}}"
-      hx-post="/admin/tenants/{{.ID}}/settings/permmode"
-      hx-include="#perm-mode-{{.ID}}"
-      hx-target="#perm-mode-save-{{.ID}}"
-      hx-swap="innerHTML">
-      <option value="explicit" {{if eq .PermMode "explicit"}}selected{{end}}>explicit — grants required</option>
-      <option value="open"     {{if eq .PermMode "open"}}selected{{end}}>open — access unless restricted</option>
-      <option value="inherit"  {{if eq .PermMode "inherit"}}selected{{end}}>inherit — grants cascade from parent</option>
-    </select>
-    <span id="perm-mode-save-{{.ID}}"></span>
   </div>
 </div>
 {{end}}

@@ -3,15 +3,11 @@
 <div class="page-header">
   <div>
     <h1>Dashboard</h1>
-    <p>System overview for tenant <strong>{{.Principal.TenantID}}</strong></p>
+    <p>System overview</p>
   </div>
 </div>
 
 <div class="stats-grid">
-  <div class="stat-card">
-    <div class="label">Tenants</div>
-    <div class="value">{{.Stats.Tenants}}</div>
-  </div>
   <div class="stat-card">
     <div class="label">Users</div>
     <div class="value">{{.Stats.Users}}</div>
@@ -33,7 +29,7 @@
 <div class="card">
   <div class="card-header">
     <h2>Recent Activity</h2>
-    <a href="/admin/tenants/{{.Principal.TenantID}}/audit" class="btn btn-ghost btn-sm">View all →</a>
+    <a href="/admin/audit" class="btn btn-ghost btn-sm">View all →</a>
   </div>
   <div class="table-wrap">
     {{if .RecentAudit}}

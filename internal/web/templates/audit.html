@@ -1,7 +1,7 @@
 {{define "title"}}Audit Log{{end}}
 {{define "content"}}
 <div class="breadcrumb">
-  <a href="/admin/tenants">Tenants</a>
+  <a href="/admin/projects">Projects</a>
   <span class="sep">›</span>
   <span class="current">Audit Log</span>
 </div>
@@ -13,7 +13,7 @@
 <div class="card">
   <!-- Filter bar -->
   <div class="filter-bar"
-       hx-get="/admin/tenants/{{.TenantID}}/audit/events"
+       hx-get="/admin/audit/events"
        hx-trigger="change from:.filter-bar, keyup changed delay:400ms from:#filter-action,#filter-principal"
        hx-target="#audit-rows"
        hx-swap="innerHTML"
@@ -52,7 +52,6 @@
           <th>Principal</th>
           <th>Action</th>
           <th>Resource</th>
-          <th>Tenant</th>
         </tr>
       </thead>
       <tbody id="audit-rows">
@@ -60,7 +59,7 @@
         {{template "audit-row" .}}
         {{end}}
         {{if not .Events}}
-        <tr><td colspan="5"><div class="empty-state"><p>No events found.</p></div></td></tr>
+        <tr><td colspan="4"><div class="empty-state"><p>No events found.</p></div></td></tr>
         {{end}}
       </tbody>
     </table>
@@ -79,6 +78,5 @@
   <td>{{.Principal}}</td>
   <td><span class="badge badge-blue">{{.Action}}</span></td>
   <td class="mono">{{.Resource}}</td>
-  <td class="muted">{{.TenantID}}</td>
 </tr>
 {{end}}

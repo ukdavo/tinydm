@@ -1,40 +1,12 @@
 {{define "title"}}Projects{{end}}
 {{define "content"}}
-<div class="breadcrumb">
-  <a href="/admin/tenants">Tenants</a>
-  <span class="sep">›</span>
-  <span class="current">{{.Tenant.Name}}</span>
-</div>
 
 <div class="page-header">
-  <div><h1>Projects</h1><p>Tenant: <strong>{{.Tenant.ID}}</strong></p></div>
+  <div><h1>Projects</h1><p>All projects</p></div>
   <div style="display:flex;gap:8px;">
-    <a class="btn btn-ghost btn-sm" href="/admin/tenants/{{.Tenant.ID}}/users">Users</a>
-    <a class="btn btn-ghost btn-sm" href="/admin/tenants/{{.Tenant.ID}}/apikeys">API Keys</a>
-    <a class="btn btn-ghost btn-sm" href="/admin/tenants/{{.Tenant.ID}}/audit">Audit Log</a>
-  </div>
-</div>
-
-<div class="stats-grid">
-  <div class="stat-card">
-    <div class="label">Projects</div>
-    <div class="value">{{.Stats.Projects}}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">Buckets</div>
-    <div class="value">{{.Stats.Buckets}}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">Documents</div>
-    <div class="value">{{.Stats.Documents}}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">Users</div>
-    <div class="value">{{.Stats.Users}}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">API Keys</div>
-    <div class="value">{{.Stats.APIKeys}}</div>
+    <a class="btn btn-ghost btn-sm" href="/admin/users">Users</a>
+    <a class="btn btn-ghost btn-sm" href="/admin/apikeys">API Keys</a>
+    <a class="btn btn-ghost btn-sm" href="/admin/audit">Audit Log</a>
   </div>
 </div>
 
@@ -70,7 +42,7 @@
       <input type="text" name="description" id="new-proj-desc" placeholder="Optional">
     </div>
     <button class="btn btn-primary"
-      hx-post="/admin/tenants/{{.Tenant.ID}}/projects"
+      hx-post="/admin/projects"
       hx-include="#new-proj-name,#new-proj-desc"
       hx-target="#projects-list"
       hx-swap="beforeend"
@@ -85,18 +57,18 @@
 
 {{define "project-row"}}
 <tr id="project-{{.ID}}">
-  <td><a href="/admin/tenants/{{.TenantID}}/projects/{{.ID}}/buckets">{{.Name}}</a></td>
+  <td><a href="/admin/projects/{{.ID}}/buckets">{{.Name}}</a></td>
   <td class="muted">{{.Description}}</td>
   <td class="muted">—</td>
   <td class="text-right">
     <button class="btn btn-ghost btn-sm"
-      hx-get="/admin/tenants/{{.TenantID}}/projects/{{.ID}}/rights"
+      hx-get="/admin/projects/{{.ID}}/rights"
       hx-target="#rights-panel-area"
       hx-swap="innerHTML">
       Rights
     </button>
     <button class="btn btn-danger btn-sm"
-      hx-delete="/admin/tenants/{{.TenantID}}/projects/{{.ID}}"
+      hx-delete="/admin/projects/{{.ID}}"
       hx-target="#project-{{.ID}}"
       hx-swap="outerHTML"
       hx-confirm="Delete project '{{.Name}}'?">
@@ -131,7 +103,7 @@
           <td>{{.PermLevel}}</td>
           <td class="text-right">
             <button class="btn btn-danger btn-sm"
-              hx-delete="/admin/tenants/{{$.Tenant.ID}}/projects/{{$.ResourceID}}/rights"
+              hx-delete="/admin/projects/{{$.ResourceID}}/rights"
               hx-vals='{"principal":"{{.PrincipalType | js}}:{{.PrincipalID | js}}"}'
               hx-target="#project-rights-panel-{{$.ResourceID}}"
               hx-swap="outerHTML">
@@ -175,7 +147,7 @@
       <label><input type="checkbox" name="cascade" id="pr-cas-{{.ResourceID}}"> Cascade to all buckets and documents</label>
     </div>
     <button class="btn btn-primary"
-      hx-post="/admin/tenants/{{.Tenant.ID}}/projects/{{.ResourceID}}/rights"
+      hx-post="/admin/projects/{{.ResourceID}}/rights"
       hx-include="#pr-principal-{{.ResourceID}},#pr-pl-{{.ResourceID}},#pr-cas-{{.ResourceID}}"
       hx-target="#project-rights-panel-{{.ResourceID}}"
       hx-swap="outerHTML">

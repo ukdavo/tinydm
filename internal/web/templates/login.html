@@ -17,16 +17,6 @@
 
     <form method="POST" action="/admin/login">
       <div class="form-group">
-        <label for="tenant_name">Tenant</label>
-        <input type="text" id="tenant_name" name="tenant_name"
-               value="{{.TenantName}}"
-               placeholder="{{if .DefaultTenantName}}{{.DefaultTenantName}}{{else}}Default{{end}}"
-               autocomplete="off" required>
-        {{if .DefaultTenantName}}
-        <p class="field-hint">Default tenant: <strong>{{.DefaultTenantName}}</strong></p>
-        {{end}}
-      </div>
-      <div class="form-group">
         <label for="username">Username</label>
         <input type="text" id="username" name="username"
                value="{{.Username}}" autocomplete="username" required autofocus>

@@ -1,9 +1,7 @@
 {{define "title"}}Buckets{{end}}
 {{define "content"}}
 <div class="breadcrumb">
-  <a href="/admin/tenants">Tenants</a>
-  <span class="sep">›</span>
-  <a href="/admin/tenants/{{.Tenant.ID}}/projects">{{.Tenant.Name}}</a>
+  <a href="/admin/projects">Projects</a>
   <span class="sep">›</span>
   <span class="current">{{.Project.Name}}</span>
 </div>
@@ -55,7 +53,7 @@
       <input type="text" name="description" id="new-bkt-desc" placeholder="Optional">
     </div>
     <button class="btn btn-primary"
-      hx-post="/admin/tenants/{{.Tenant.ID}}/projects/{{.Project.ID}}/buckets"
+      hx-post="/admin/projects/{{.Project.ID}}/buckets"
       hx-include="#new-bkt-name,#new-bkt-desc"
       hx-target="#buckets-list"
       hx-swap="beforeend"
@@ -70,25 +68,25 @@
 
 {{define "bucket-row"}}
 <tr id="bucket-{{.ID}}">
-  <td><a href="/admin/tenants/{{.TenantID}}/projects/{{.ProjectID}}/buckets/{{.ID}}/documents">{{.Name}}</a></td>
+  <td><a href="/admin/projects/{{.ProjectID}}/buckets/{{.ID}}/documents">{{.Name}}</a></td>
   <td class="muted">{{.Description}}</td>
   <td class="muted">{{.DocCount}}</td>
   <td class="text-right">
     <div class="flex gap-8 items-center" style="justify-content:flex-end;">
       <button class="btn btn-ghost btn-sm"
-        hx-get="/admin/tenants/{{.TenantID}}/projects/{{.ProjectID}}/buckets/{{.ID}}/rights"
+        hx-get="/admin/projects/{{.ProjectID}}/buckets/{{.ID}}/rights"
         hx-target="#rights-panel-area"
         hx-swap="innerHTML">
         Rights
       </button>
       <button class="btn btn-ghost btn-sm"
-        hx-get="/admin/tenants/{{.TenantID}}/projects/{{.ProjectID}}/buckets/{{.ID}}/edit"
+        hx-get="/admin/projects/{{.ProjectID}}/buckets/{{.ID}}/edit"
         hx-target="#bucket-{{.ID}}"
         hx-swap="outerHTML">
         Edit
       </button>
       <button class="btn btn-danger btn-sm"
-        hx-delete="/admin/tenants/{{.TenantID}}/projects/{{.ProjectID}}/buckets/{{.ID}}"
+        hx-delete="/admin/projects/{{.ProjectID}}/buckets/{{.ID}}"
         hx-target="#bucket-{{.ID}}"
         hx-swap="outerHTML"
         hx-confirm="Delete bucket '{{.Name}}'?">
@@ -112,14 +110,14 @@
         <input type="text" id="bkt-desc-{{.ID}}" name="description" value="{{.Description}}">
       </div>
       <button class="btn btn-primary btn-sm"
-        hx-put="/admin/tenants/{{.TenantID}}/projects/{{.ProjectID}}/buckets/{{.ID}}"
+        hx-put="/admin/projects/{{.ProjectID}}/buckets/{{.ID}}"
         hx-include="#bkt-name-{{.ID}},#bkt-desc-{{.ID}}"
         hx-target="#bucket-{{.ID}}"
         hx-swap="outerHTML">
         Save
       </button>
       <button class="btn btn-ghost btn-sm"
-        hx-get="/admin/tenants/{{.TenantID}}/projects/{{.ProjectID}}/buckets/{{.ID}}/row"
+        hx-get="/admin/projects/{{.ProjectID}}/buckets/{{.ID}}/row"
         hx-target="#bucket-{{.ID}}"
         hx-swap="outerHTML">
         Cancel
@@ -155,7 +153,7 @@
           <td>{{.PermLevel}}</td>
           <td class="text-right">
             <button class="btn btn-danger btn-sm"
-              hx-delete="/admin/tenants/{{$.Tenant.ID}}/projects/{{$.ParentID}}/buckets/{{$.ResourceID}}/rights"
+              hx-delete="/admin/projects/{{$.ParentID}}/buckets/{{$.ResourceID}}/rights"
               hx-vals='{"principal":"{{.PrincipalType | js}}:{{.PrincipalID | js}}"}'
               hx-target="#bucket-rights-panel-{{$.ResourceID}}"
               hx-swap="outerHTML">
@@ -199,7 +197,7 @@
       <label><input type="checkbox" name="cascade" id="bk-cas-{{.ResourceID}}"> Cascade to all documents in this bucket</label>
     </div>
     <button class="btn btn-primary"
-      hx-post="/admin/tenants/{{.Tenant.ID}}/projects/{{.ParentID}}/buckets/{{.ResourceID}}/rights"
+      hx-post="/admin/projects/{{.ParentID}}/buckets/{{.ResourceID}}/rights"
       hx-include="#bk-principal-{{.ResourceID}},#bk-pl-{{.ResourceID}},#bk-cas-{{.ResourceID}}"
       hx-target="#bucket-rights-panel-{{.ResourceID}}"
       hx-swap="outerHTML">

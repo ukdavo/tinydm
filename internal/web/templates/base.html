@@ -19,8 +19,17 @@
       <li><a href="/admin/" {{if eq .Page "dashboard"}}class="active"{{end}}>
         <span class="icon">◈</span> Dashboard
       </a></li>
-      <li><a href="/admin/tenants" {{if eq .Page "tenants"}}class="active"{{end}}>
-        <span class="icon">⬡</span> Tenants
+      <li><a href="/admin/projects" {{if eq .Page "projects"}}class="active"{{end}}>
+        <span class="icon">⬡</span> Projects
+      </a></li>
+      <li><a href="/admin/users" {{if eq .Page "users"}}class="active"{{end}}>
+        <span class="icon">◎</span> Users
+      </a></li>
+      <li><a href="/admin/apikeys" {{if eq .Page "apikeys"}}class="active"{{end}}>
+        <span class="icon">◇</span> API Keys
+      </a></li>
+      <li><a href="/admin/audit" {{if eq .Page "audit"}}class="active"{{end}}>
+        <span class="icon">◉</span> Audit Log
       </a></li>
     </ul>
 
@@ -36,7 +45,7 @@
     <header class="topbar">
       <span class="topbar-title">{{block "title" .}}{{end}}</span>
       <div class="topbar-actions">
-        <span class="topbar-user">{{.Principal.TenantID}}</span>
+        <span class="topbar-user">{{.Principal.Username}}</span>
       </div>
     </header>
 

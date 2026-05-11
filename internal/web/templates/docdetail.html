@@ -1,13 +1,11 @@
 {{define "title"}}{{.Doc.Name}} — Document{{end}}
 {{define "content"}}
 <div class="breadcrumb">
-  <a href="/admin/tenants">Tenants</a>
+  <a href="/admin/projects">Projects</a>
   <span class="sep">›</span>
-  <a href="/admin/tenants/{{.Tenant.ID}}/projects">{{.Tenant.Name}}</a>
+  <a href="/admin/projects/{{.Project.ID}}/buckets">{{.Project.Name}}</a>
   <span class="sep">›</span>
-  <a href="/admin/tenants/{{.Tenant.ID}}/projects/{{.Project.ID}}/buckets">{{.Project.Name}}</a>
-  <span class="sep">›</span>
-  <a href="/admin/tenants/{{.Tenant.ID}}/projects/{{.Project.ID}}/buckets/{{.Bucket.ID}}/documents">{{.Bucket.Name}}</a>
+  <a href="/admin/projects/{{.Project.ID}}/buckets/{{.Bucket.ID}}/documents">{{.Bucket.Name}}</a>
   <span class="sep">›</span>
   <span class="current">{{.Doc.Name}}</span>
 </div>
@@ -19,7 +17,7 @@
     <button class="btn btn-danger btn-sm"
       hx-delete="/admin/documents/{{.Doc.ID}}"
       hx-confirm="Delete '{{.Doc.Name}}'? This cannot be undone."
-      hx-on::after-request="window.location='/admin/tenants/{{.Tenant.ID}}/projects/{{.Project.ID}}/buckets/{{.Bucket.ID}}/documents'">
+      hx-on::after-request="window.location='/admin/projects/{{.Project.ID}}/buckets/{{.Bucket.ID}}/documents'">
       Delete
     </button>
   </div>
