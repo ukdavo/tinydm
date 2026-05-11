@@ -92,86 +92,34 @@ func pageOffset(page, limit int) int {
 // ── Login / Logout ─────────────────────────────────────────────────────────────
 
 type loginData struct {
-	Error             string
-	TenantName        string
-	Username          string
-	DefaultTenantName string // shown as a hint on the login page
-}
-
-// defaultTenantName returns the display name of the first tenant in the DB,
-// falling back to the bootstrap tenant name from config. Used to pre-populate
-// the login hint so users know what to type.
-func (h *Handler) defaultTenantName(ctx context.Context) string {
-	tenants, _, err := h.repo.ListTenants(ctx, repo.PageOpts{Limit: 1})
-	if err == nil && len(tenants) > 0 {
-		return tenants[0].Name
-	}
-	return h.cfg.BootstrapTenantName
+	Error    string
+	Username string
 }
 
 func (h *Handler) loginPage(w http.ResponseWriter, r *http.Request) {
-	h.render(w, "login", loginData{
-		DefaultTenantName: h.defaultTenantName(r.Context()),
-	})
+	h.render(w, "login", loginData{})
 }
 
 func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
-	tenantName := r.FormValue("tenant_name")
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 
-	defaultName := h.defaultTenantName(r.Context())
-
-	if tenantName == "" || username == "" || password == "" {
-		h.render(w, "login", loginData{
-			Error:             "All fields are required.",
-			TenantName:        tenantName,
-			Username:          username,
-			DefaultTenantName: defaultName,
-		})
+	if username == "" || password == "" {
+		h.render(w, "login", loginData{Error: "Username and password are required.", Username: username})
 		return
 	}
 
-	// Resolve the public tenant name to an internal ID.
-	tenant, err := h.repo.GetTenantByName(r.Context(), tenantName)
-	if err != nil || tenant == nil {
-		h.render(w, "login", loginData{
-			Error:             "Invalid credentials.",
-			TenantName:        tenantName,
-			Username:          username,
-			DefaultTenantName: defaultName,
-		})
-		return
-	}
-
-	user, err := h.auth.GetUserByUsername(r.Context(), tenant.ID, username)
+	user, err := h.auth.GetUserByUsername(r.Context(), username)
 	if err != nil || user == nil || !user.IsActive {
-		h.render(w, "login", loginData{
-			Error:             "Invalid credentials.",
-			TenantName:        tenantName,
-			Username:          username,
-			DefaultTenantName: defaultName,
-		})
+		h.render(w, "login", loginData{Error: "Invalid credentials.", Username: username})
 		return
 	}
 	if err := auth.CheckPassword(user.PasswordHash, password); err != nil {
-		h.render(w, "login", loginData{
-			Error:             "Invalid credentials.",
-			TenantName:        tenantName,
-			Username:          username,
-			DefaultTenantName: defaultName,
-		})
+		h.render(w, "login", loginData{Error: "Invalid credentials.", Username: username})
 		return
 	}
 
-	token, err := auth.NewJWT(
-		h.cfg.JWTSecret,
-		h.cfg.JWTExpiryMinutes,
-		user.ID,
-		user.TenantID,
-		user.Username,
-		user.UserType,
-	)
+	token, err := auth.NewJWT(h.cfg.JWTSecret, h.cfg.JWTExpiryMinutes, user.ID, user.Username, user.UserType)
 	if err != nil {
 		h.render(w, "login", loginData{Error: "Could not create session."})
 		return
@@ -182,8 +130,8 @@ func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode, // CSRF protection
-		Secure:   h.cfg.SecureCookies,  // set true behind HTTPS
+		SameSite: http.SameSiteLaxMode,
+		Secure:   h.cfg.SecureCookies,
 		MaxAge:   h.cfg.JWTExpiryMinutes * 60,
 	})
 	http.Redirect(w, r, "/admin/", http.StatusFound)
@@ -197,7 +145,6 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 type dashboardStats struct {
-	Tenants   int
 	Users     int
 	Projects  int
 	Buckets   int
@@ -212,19 +159,13 @@ type dashboardData struct {
 
 func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 	bp := h.base(r, "dashboard")
-	tid := bp.Principal.TenantID
-
 	var stats dashboardStats
-	stats.Tenants, _ = h.repo.CountTenants(r.Context())
 	stats.Users, _ = h.auth.CountUsers(r.Context())
-	stats.Projects, _ = h.repo.CountProjects(r.Context(), tid)
-	stats.Buckets, _ = h.repo.CountBuckets(r.Context(), tid)
-	stats.Documents, _ = h.repo.CountDocuments(r.Context(), tid)
+	stats.Projects, _ = h.repo.CountProjects(r.Context(), "")
+	stats.Buckets, _ = h.repo.CountBuckets(r.Context(), "")
+	stats.Documents, _ = h.repo.CountDocuments(r.Context(), "")
 
-	recent, _, _ := h.audit.List(r.Context(), audit.Filter{
-		TenantID: tid,
-		Limit:    10,
-	})
+	recent, _, _ := h.audit.List(r.Context(), audit.Filter{Limit: 10})
 
 	h.render(w, "dashboard", dashboardData{
 		basePage:    bp,
@@ -233,127 +174,32 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ── Tenants ───────────────────────────────────────────────────────────────────
-
-type tenantsData struct {
-	basePage
-	Tenants []*repo.Tenant
-	Pager   WebPagination
-}
-
-func (h *Handler) tenants(w http.ResponseWriter, r *http.Request) {
-	p, _ := auth.PrincipalFromContext(r.Context())
-	if !p.IsSuperAdmin() {
-		tenant, _ := h.repo.GetTenant(r.Context(), p.TenantID)
-		var tenants []*repo.Tenant
-		if tenant != nil {
-			tenants = append(tenants, tenant)
-		}
-		h.render(w, "tenants", tenantsData{
-			basePage: h.base(r, "tenants"),
-			Tenants:  tenants,
-			Pager:    newWebPagination(len(tenants), 1, len(tenants)+1, ""),
-		})
-		return
-	}
-	page, limit := parsePage(r)
-	tenants, total, _ := h.repo.ListTenants(r.Context(), repo.PageOpts{Limit: limit, Offset: pageOffset(page, limit)})
-	h.render(w, "tenants", tenantsData{
-		basePage: h.base(r, "tenants"),
-		Tenants:  tenants,
-		Pager:    newWebPagination(total, page, limit, ""),
-	})
-}
-
-func (h *Handler) createTenant(w http.ResponseWriter, r *http.Request) {
-	name := r.FormValue("name")
-	desc := r.FormValue("description")
-	if name == "" {
-		http.Error(w, "name required", http.StatusBadRequest)
-		return
-	}
-	t, err := h.repo.CreateTenant(r.Context(), name, desc)
-	if err != nil {
-		http.Error(w, "create failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	adminUser, adminPass, err := h.auth.CreateDomainAdmin(r.Context(), t.ID)
-	if err != nil {
-		http.Error(w, "tenant created but failed to provision domain admin: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	tmpl, ok := h.tmpls["tenants"]
-	if !ok {
-		http.Error(w, "template not found", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = tmpl.ExecuteTemplate(w, "tenant-row", t)
-	_ = tmpl.ExecuteTemplate(w, "tenant-created-notice", struct{ Username, Password string }{adminUser.Username, adminPass})
-}
-
-func (h *Handler) deleteTenant(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "tenantID")
-	if err := h.repo.DeleteTenant(r.Context(), id); err != nil {
-		http.Error(w, "delete failed", http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-}
-
 // ── Projects ──────────────────────────────────────────────────────────────────
-
-type tenantStats struct {
-	Projects  int
-	Buckets   int
-	Documents int
-	Users     int
-	APIKeys   int
-}
 
 type projectsData struct {
 	basePage
-	Tenant   *repo.Tenant
-	Stats    tenantStats
 	Projects []*repo.Project
 	Pager    WebPagination
 }
 
 func (h *Handler) projects(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
-	tenant, err := h.repo.GetTenant(r.Context(), tenantID)
-	if err != nil || tenant == nil {
-		http.NotFound(w, r)
-		return
-	}
 	page, limit := parsePage(r)
-	projects, total, _ := h.repo.ListProjects(r.Context(), tenantID, repo.PageOpts{Limit: limit, Offset: pageOffset(page, limit)})
-
-	var stats tenantStats
-	stats.Projects, _ = h.repo.CountProjects(r.Context(), tenantID)
-	stats.Buckets, _ = h.repo.CountBuckets(r.Context(), tenantID)
-	stats.Documents, _ = h.repo.CountDocuments(r.Context(), tenantID)
-	stats.Users, _ = h.auth.CountUsersByTenant(r.Context(), tenantID)
-	stats.APIKeys, _ = h.auth.CountAPIKeysByTenant(r.Context(), tenantID)
-
+	projects, total, _ := h.repo.ListProjects(r.Context(), "", repo.PageOpts{Limit: limit, Offset: pageOffset(page, limit)})
 	h.render(w, "projects", projectsData{
 		basePage: h.base(r, "projects"),
-		Tenant:   tenant,
-		Stats:    stats,
 		Projects: projects,
 		Pager:    newWebPagination(total, page, limit, ""),
 	})
 }
 
 func (h *Handler) createProject(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	name := r.FormValue("name")
 	desc := r.FormValue("description")
 	if name == "" {
 		http.Error(w, "name required", http.StatusBadRequest)
 		return
 	}
-	p, err := h.repo.CreateProject(r.Context(), tenantID, name, desc)
+	p, err := h.repo.CreateProject(r.Context(), "", name, desc)
 	if err != nil {
 		http.Error(w, "create failed: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -372,11 +218,10 @@ func (h *Handler) deleteProject(w http.ResponseWriter, r *http.Request) {
 
 // ── Buckets ───────────────────────────────────────────────────────────────────
 
-// bucketRow wraps a Bucket with the parent TenantID and document count,
-// needed by the bucket-row template to build URLs and show stats.
+// bucketRow wraps a Bucket with the document count,
+// needed by the bucket-row template to show stats.
 type bucketRow struct {
 	*repo.Bucket
-	TenantID string
 	DocCount int
 }
 
@@ -387,7 +232,6 @@ type projectStats struct {
 
 type bucketsData struct {
 	basePage
-	Tenant  *repo.Tenant
 	Project *repo.Project
 	Stats   projectStats
 	Buckets []bucketRow
@@ -395,14 +239,8 @@ type bucketsData struct {
 }
 
 func (h *Handler) buckets(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	projectID := chi.URLParam(r, "projectID")
 
-	tenant, err := h.repo.GetTenant(r.Context(), tenantID)
-	if err != nil || tenant == nil {
-		http.NotFound(w, r)
-		return
-	}
 	project, err := h.repo.GetProject(r.Context(), projectID)
 	if err != nil || project == nil {
 		http.NotFound(w, r)
@@ -414,7 +252,7 @@ func (h *Handler) buckets(w http.ResponseWriter, r *http.Request) {
 	var rows []bucketRow
 	for _, b := range raw {
 		n, _ := h.repo.CountDocumentsInBucket(r.Context(), b.ID)
-		rows = append(rows, bucketRow{Bucket: b, TenantID: tenantID, DocCount: n})
+		rows = append(rows, bucketRow{Bucket: b, DocCount: n})
 	}
 
 	var stats projectStats
@@ -423,7 +261,6 @@ func (h *Handler) buckets(w http.ResponseWriter, r *http.Request) {
 
 	h.render(w, "buckets", bucketsData{
 		basePage: h.base(r, "buckets"),
-		Tenant:   tenant,
 		Project:  project,
 		Stats:    stats,
 		Buckets:  rows,
@@ -432,7 +269,6 @@ func (h *Handler) buckets(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	projectID := chi.URLParam(r, "projectID")
 	name := r.FormValue("name")
 	desc := r.FormValue("description")
@@ -446,7 +282,7 @@ func (h *Handler) createBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n, _ := h.repo.CountDocumentsInBucket(r.Context(), b.ID)
-	h.renderPartial(w, "buckets", "bucket-row", bucketRow{Bucket: b, TenantID: tenantID, DocCount: n})
+	h.renderPartial(w, "buckets", "bucket-row", bucketRow{Bucket: b, DocCount: n})
 }
 
 func (h *Handler) deleteBucket(w http.ResponseWriter, r *http.Request) {
@@ -467,7 +303,6 @@ type bucketSummaryStats struct {
 
 type documentsData struct {
 	basePage
-	Tenant    *repo.Tenant
 	Project   *repo.Project
 	Bucket    *repo.Bucket
 	Stats     bucketSummaryStats
@@ -476,15 +311,9 @@ type documentsData struct {
 }
 
 func (h *Handler) documents(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	projectID := chi.URLParam(r, "projectID")
 	bucketID := chi.URLParam(r, "bucketID")
 
-	tenant, err := h.repo.GetTenant(r.Context(), tenantID)
-	if err != nil || tenant == nil {
-		http.NotFound(w, r)
-		return
-	}
 	project, err := h.repo.GetProject(r.Context(), projectID)
 	if err != nil || project == nil {
 		http.NotFound(w, r)
@@ -504,7 +333,6 @@ func (h *Handler) documents(w http.ResponseWriter, r *http.Request) {
 
 	h.render(w, "documents", documentsData{
 		basePage: h.base(r, "documents"),
-		Tenant:   tenant,
 		Project:  project,
 		Bucket:   bucket,
 		Stats: bucketSummaryStats{
@@ -612,40 +440,23 @@ func (h *Handler) downloadDocument(w http.ResponseWriter, r *http.Request) {
 
 type usersData struct {
 	basePage
-	Tenant        *repo.Tenant
-	Users         []*auth.User
-	Pager         WebPagination
-	PermModeTenant struct {
-		ID       string
-		PermMode string
-	}
+	Users []*auth.User
+	Pager WebPagination
 }
 
-// tenantUsers renders GET /admin/tenants/{tenantID}/users
-func (h *Handler) tenantUsers(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
-	tenant, err := h.repo.GetTenant(r.Context(), tenantID)
-	if err != nil || tenant == nil {
-		http.NotFound(w, r)
-		return
-	}
+// users renders GET /admin/users
+func (h *Handler) users(w http.ResponseWriter, r *http.Request) {
 	page, limit := parsePage(r)
-	users, total, _ := h.auth.ListUsers(r.Context(), tenantID, limit, pageOffset(page, limit))
-	mode, _ := h.auth.GetTenantPermMode(r.Context(), tenantID)
-	data := usersData{
+	users, total, _ := h.auth.ListUsers(r.Context(), limit, pageOffset(page, limit))
+	h.render(w, "users", usersData{
 		basePage: h.base(r, "users"),
-		Tenant:   tenant,
 		Users:    users,
 		Pager:    newWebPagination(total, page, limit, ""),
-	}
-	data.PermModeTenant.ID = tenantID
-	data.PermModeTenant.PermMode = string(mode)
-	h.render(w, "users", data)
+	})
 }
 
-// createTenantUser handles POST /admin/tenants/{tenantID}/users
-func (h *Handler) createTenantUser(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
+// createUser handles POST /admin/users
+func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
 	email := r.FormValue("email")
 	firstName := strings.TrimSpace(r.FormValue("first_name"))
@@ -669,7 +480,7 @@ func (h *Handler) createTenantUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.auth.CreateUser(r.Context(), tenantID, username, email, firstName, lastName, hash, userType)
+	user, err := h.auth.CreateUser(r.Context(), username, email, firstName, lastName, hash, userType)
 	if err != nil {
 		http.Error(w, "create failed: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -775,36 +586,22 @@ func (h *Handler) deleteUser(w http.ResponseWriter, r *http.Request) {
 
 type apiKeysData struct {
 	basePage
-	Tenant *repo.Tenant
 	Keys   []*auth.APIKey
 	NewKey string // only set immediately after creation
 	Pager  WebPagination
 }
 
-func (h *Handler) tenantAPIKeys(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
-	tenant, err := h.repo.GetTenant(r.Context(), tenantID)
-	if err != nil || tenant == nil {
-		http.NotFound(w, r)
-		return
-	}
+func (h *Handler) apiKeys(w http.ResponseWriter, r *http.Request) {
 	page, limit := parsePage(r)
-	keys, total, _ := h.auth.ListAPIKeys(r.Context(), tenantID, limit, pageOffset(page, limit))
+	keys, total, _ := h.auth.ListAPIKeys(r.Context(), limit, pageOffset(page, limit))
 	h.render(w, "apikeys", apiKeysData{
 		basePage: h.base(r, "apikeys"),
-		Tenant:   tenant,
 		Keys:     keys,
 		Pager:    newWebPagination(total, page, limit, ""),
 	})
 }
 
-func (h *Handler) createTenantAPIKey(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
-	tenant, err := h.repo.GetTenant(r.Context(), tenantID)
-	if err != nil || tenant == nil {
-		http.NotFound(w, r)
-		return
-	}
+func (h *Handler) createAPIKey(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.PrincipalFromContext(r.Context())
 	name := r.FormValue("name")
 	if name == "" {
@@ -818,33 +615,31 @@ func (h *Handler) createTenantAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	uid := p.ID
-	if _, err = h.auth.CreateAPIKey(r.Context(), tenantID, &uid, name, hash, prefix, nil); err != nil {
+	if _, err = h.auth.CreateAPIKey(r.Context(), &uid, name, hash, prefix, nil); err != nil {
 		http.Error(w, "create failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	// Re-render the full page so the new key is displayed once.
-	keys, total, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 50, 0)
+	keys, total, _ := h.auth.ListAPIKeys(r.Context(), 50, 0)
 	h.render(w, "apikeys", apiKeysData{
 		basePage: h.base(r, "apikeys"),
-		Tenant:   tenant,
 		Keys:     keys,
 		NewKey:   plaintext,
 		Pager:    newWebPagination(total, 1, 50, ""),
 	})
 }
 
-func (h *Handler) revokeTenantAPIKey(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
+func (h *Handler) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "keyID")
 
-	if err := h.auth.RevokeAPIKey(r.Context(), tenantID, id); err != nil {
+	if err := h.auth.RevokeAPIKey(r.Context(), id); err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
 
 	// Return the updated row.
-	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), 500, 0)
 	for _, k := range keys {
 		if k.ID == id {
 			h.renderPartial(w, "apikeys", "apikey-row", k)
@@ -858,27 +653,18 @@ func (h *Handler) revokeTenantAPIKey(w http.ResponseWriter, r *http.Request) {
 
 type auditData struct {
 	basePage
-	TenantID string
-	Events   []*audit.Event
-	Pager    WebPagination
+	Events []*audit.Event
+	Pager  WebPagination
 }
 
 func (h *Handler) auditLog(w http.ResponseWriter, r *http.Request) {
-	p, _ := auth.PrincipalFromContext(r.Context())
-	tenantID := chi.URLParam(r, "tenantID")
-	if p.UserType != auth.UserTypeSuperAdmin && tenantID != p.TenantID {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
 	page, limit := parsePage(r)
 	events, total, _ := h.audit.List(r.Context(), audit.Filter{
-		TenantID: tenantID,
-		Limit:    limit,
-		Offset:   pageOffset(page, limit),
+		Limit:  limit,
+		Offset: pageOffset(page, limit),
 	})
 	h.render(w, "audit", auditData{
 		basePage: h.base(r, "audit"),
-		TenantID: tenantID,
 		Events:   events,
 		Pager:    newWebPagination(total, page, limit, ""),
 	})
@@ -887,7 +673,6 @@ func (h *Handler) auditLog(w http.ResponseWriter, r *http.Request) {
 // ── Phase 7: Bucket edit / update ────────────────────────────────────────────
 
 func (h *Handler) editBucketForm(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	bucketID := chi.URLParam(r, "bucketID")
 	b, err := h.repo.GetBucket(r.Context(), bucketID)
 	if err != nil || b == nil {
@@ -895,11 +680,10 @@ func (h *Handler) editBucketForm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n, _ := h.repo.CountDocumentsInBucket(r.Context(), b.ID)
-	h.renderPartial(w, "buckets", "bucket-edit-row", bucketRow{Bucket: b, TenantID: tenantID, DocCount: n})
+	h.renderPartial(w, "buckets", "bucket-edit-row", bucketRow{Bucket: b, DocCount: n})
 }
 
 func (h *Handler) bucketRowPartial(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	bucketID := chi.URLParam(r, "bucketID")
 	b, err := h.repo.GetBucket(r.Context(), bucketID)
 	if err != nil || b == nil {
@@ -907,11 +691,10 @@ func (h *Handler) bucketRowPartial(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n, _ := h.repo.CountDocumentsInBucket(r.Context(), b.ID)
-	h.renderPartial(w, "buckets", "bucket-row", bucketRow{Bucket: b, TenantID: tenantID, DocCount: n})
+	h.renderPartial(w, "buckets", "bucket-row", bucketRow{Bucket: b, DocCount: n})
 }
 
 func (h *Handler) updateBucket(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	bucketID := chi.URLParam(r, "bucketID")
 	name := r.FormValue("name")
 	desc := r.FormValue("description")
@@ -925,7 +708,7 @@ func (h *Handler) updateBucket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n, _ := h.repo.CountDocumentsInBucket(r.Context(), b.ID)
-	h.renderPartial(w, "buckets", "bucket-row", bucketRow{Bucket: b, TenantID: tenantID, DocCount: n})
+	h.renderPartial(w, "buckets", "bucket-row", bucketRow{Bucket: b, DocCount: n})
 }
 
 // ── Phase 7: Document rows (HTMX search / tag-filter partial) ─────────────────
@@ -1083,7 +866,6 @@ type docTagsData struct {
 type documentDetailData struct {
 	basePage
 	Doc       *repo.Document
-	Tenant    *repo.Tenant
 	Project   *repo.Project
 	Bucket    *repo.Bucket
 	TagsData  docTagsData
@@ -1095,26 +877,22 @@ type documentDetailData struct {
 	APIKeys   []*auth.APIKey
 }
 
-// resolveDocumentContext walks bucket → project → tenant for a given document.
-func (h *Handler) resolveDocumentContext(ctx context.Context, doc *repo.Document) (*repo.Tenant, *repo.Project, *repo.Bucket, error) {
+// resolveDocumentContext walks bucket → project for a given document.
+func (h *Handler) resolveDocumentContext(ctx context.Context, doc *repo.Document) (*repo.Project, *repo.Bucket, error) {
 	bucket, err := h.repo.GetBucket(ctx, doc.BucketID)
 	if err != nil || bucket == nil {
-		return nil, nil, nil, fmt.Errorf("bucket not found")
+		return nil, nil, fmt.Errorf("bucket not found")
 	}
 	project, err := h.repo.GetProject(ctx, bucket.ProjectID)
 	if err != nil || project == nil {
-		return nil, nil, nil, fmt.Errorf("project not found")
+		return nil, nil, fmt.Errorf("project not found")
 	}
-	tenant, err := h.repo.GetTenant(ctx, project.TenantID)
-	if err != nil || tenant == nil {
-		return nil, nil, nil, fmt.Errorf("tenant not found")
-	}
-	return tenant, project, bucket, nil
+	return project, bucket, nil
 }
 
 // buildDocDetailData assembles the full documentDetailData for a document.
 func (h *Handler) buildDocDetailData(r *http.Request, doc *repo.Document) (documentDetailData, error) {
-	tenant, project, bucket, err := h.resolveDocumentContext(r.Context(), doc)
+	project, bucket, err := h.resolveDocumentContext(r.Context(), doc)
 	if err != nil {
 		return documentDetailData{}, err
 	}
@@ -1139,16 +917,14 @@ func (h *Handler) buildDocDetailData(r *http.Request, doc *repo.Document) (docum
 
 	versions, _, _ := h.repo.ListDocumentVersions(r.Context(), doc.ID, repo.PageOpts{Limit: 500})
 
-	tenantID := project.TenantID
-	rawRights, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "document", doc.ID)
-	allDocUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	rawRights, _ := h.auth.ListRightsByResource(r.Context(), "document", doc.ID)
+	allDocUsers, _, _ := h.auth.ListUsers(r.Context(), 500, 0)
 	docUsers := filterNonAdminUsers(allDocUsers)
-	docKeys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+	docKeys, _, _ := h.auth.ListAPIKeys(r.Context(), 500, 0)
 
 	data := documentDetailData{
 		basePage:  h.base(r, "documents"),
 		Doc:       doc,
-		Tenant:    tenant,
 		Project:   project,
 		Bucket:    bucket,
 		TagsData:  docTagsData{DocID: doc.ID, Tags: tags},
@@ -1267,12 +1043,6 @@ func (h *Handler) restoreDocumentVersionWeb(w http.ResponseWriter, r *http.Reque
 
 // auditEvents handles the HTMX partial for filtered audit rows.
 func (h *Handler) auditEvents(w http.ResponseWriter, r *http.Request) {
-	p, _ := auth.PrincipalFromContext(r.Context())
-	tenantID := chi.URLParam(r, "tenantID")
-	if p.UserType != auth.UserTypeSuperAdmin && tenantID != p.TenantID {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
 	q := r.URL.Query()
 	page, limit := parsePage(r)
 
@@ -1290,7 +1060,6 @@ func (h *Handler) auditEvents(w http.ResponseWriter, r *http.Request) {
 	principal := q.Get("principal")
 
 	events, total, _ := h.audit.List(r.Context(), audit.Filter{
-		TenantID:  tenantID,
 		Action:    action,
 		Principal: principal,
 		From:      from,
@@ -1363,14 +1132,12 @@ func formatSize(bytes int64) string {
 
 type userRightsPage struct {
 	basePage
-	Tenant *repo.Tenant
 	User   *auth.User
 	Rights []auth.Right
 }
 
 type apiKeyRightsPage struct {
 	basePage
-	Tenant *repo.Tenant
 	Key    *auth.APIKey
 	Rights []auth.Right
 }
@@ -1383,7 +1150,6 @@ type ResourceRight struct {
 
 type resourceRightsPage struct {
 	basePage
-	Tenant       *repo.Tenant
 	ResourceType string
 	ResourceID   string
 	ResourceName string
@@ -1396,27 +1162,20 @@ type resourceRightsPage struct {
 // ── User rights handlers ──────────────────────────────────────────────────────
 
 func (h *Handler) userRightsPanel(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	userID := chi.URLParam(r, "userID")
 
-	tenant, err := h.repo.GetTenant(r.Context(), tenantID)
-	if err != nil || tenant == nil {
-		http.NotFound(w, r)
-		return
-	}
 	user, err := h.auth.GetUserByID(r.Context(), userID)
-	if err != nil || user == nil || user.TenantID != tenantID {
+	if err != nil || user == nil {
 		http.NotFound(w, r)
 		return
 	}
-	rights, err := h.auth.ListRights(r.Context(), tenantID, "user", userID)
+	rights, err := h.auth.ListRights(r.Context(), "user", userID)
 	if err != nil {
 		rights = nil
 	}
 
 	data := userRightsPage{
 		basePage: h.base(r, "users"),
-		Tenant:   tenant,
 		User:     user,
 		Rights:   rights,
 	}
@@ -1424,11 +1183,10 @@ func (h *Handler) userRightsPanel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) addUserRight(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	userID := chi.URLParam(r, "userID")
 
 	user, err := h.auth.GetUserByID(r.Context(), userID)
-	if err != nil || user == nil || user.TenantID != tenantID {
+	if err != nil || user == nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -1440,7 +1198,6 @@ func (h *Handler) addUserRight(w http.ResponseWriter, r *http.Request) {
 
 	cc, cr, cu, cd := permLevelToFlags(r.FormValue("perm_level"))
 	params := auth.UpsertRightParams{
-		TenantID:      tenantID,
 		PrincipalType: "user",
 		PrincipalID:   userID,
 		ResourceType:  r.FormValue("resource_type"),
@@ -1460,18 +1217,16 @@ func (h *Handler) addUserRight(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Re-render the panel partial.
-	rights, _ := h.auth.ListRights(r.Context(), tenantID, "user", userID)
-	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
-	data := userRightsPage{basePage: h.base(r, "users"), Tenant: tenant, User: user, Rights: rights}
+	rights, _ := h.auth.ListRights(r.Context(), "user", userID)
+	data := userRightsPage{basePage: h.base(r, "users"), User: user, Rights: rights}
 	h.renderPartial(w, "users", "user-rights-panel", data)
 }
 
 func (h *Handler) removeUserRight(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	userID := chi.URLParam(r, "userID")
 
 	user, err := h.auth.GetUserByID(r.Context(), userID)
-	if err != nil || user == nil || user.TenantID != tenantID {
+	if err != nil || user == nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -1483,49 +1238,36 @@ func (h *Handler) removeUserRight(w http.ResponseWriter, r *http.Request) {
 	resourceType := r.FormValue("resource_type")
 	resourceID := r.FormValue("resource_id")
 
-	_ = h.auth.DeleteRight(r.Context(), tenantID, "user", userID, resourceType, resourceID)
+	_ = h.auth.DeleteRight(r.Context(), "user", userID, resourceType, resourceID)
 
-	rights, _ := h.auth.ListRights(r.Context(), tenantID, "user", userID)
-	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
-	data := userRightsPage{basePage: h.base(r, "users"), Tenant: tenant, User: user, Rights: rights}
+	rights, _ := h.auth.ListRights(r.Context(), "user", userID)
+	data := userRightsPage{basePage: h.base(r, "users"), User: user, Rights: rights}
 	h.renderPartial(w, "users", "user-rights-panel", data)
 }
 
 // ── API key rights handlers ───────────────────────────────────────────────────
 
 func (h *Handler) apiKeyRightsPanel(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	keyID := chi.URLParam(r, "keyID")
 
-	tenant, err := h.repo.GetTenant(r.Context(), tenantID)
-	if err != nil || tenant == nil {
+	key, err := h.auth.GetAPIKeyByID(r.Context(), keyID)
+	if err != nil || key == nil {
 		http.NotFound(w, r)
 		return
 	}
-	keys, _, err := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	var key *auth.APIKey
-	for _, k := range keys {
-		if k.ID == keyID {
-			key = k
-			break
-		}
-	}
-	if key == nil {
-		http.NotFound(w, r)
-		return
-	}
-	rights, _ := h.auth.GetAPIKeyRights(r.Context(), tenantID, keyID)
-	data := apiKeyRightsPage{basePage: h.base(r, "apikeys"), Tenant: tenant, Key: key, Rights: rights}
+	rights, _ := h.auth.GetAPIKeyRights(r.Context(), keyID)
+	data := apiKeyRightsPage{basePage: h.base(r, "apikeys"), Key: key, Rights: rights}
 	h.renderPartial(w, "apikeys", "apikey-rights-panel", data)
 }
 
 func (h *Handler) addAPIKeyRight(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	keyID := chi.URLParam(r, "keyID")
+
+	key, err := h.auth.GetAPIKeyByID(r.Context(), keyID)
+	if err != nil || key == nil {
+		http.NotFound(w, r)
+		return
+	}
 
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form", http.StatusBadRequest)
@@ -1533,7 +1275,6 @@ func (h *Handler) addAPIKeyRight(w http.ResponseWriter, r *http.Request) {
 	}
 	cc, cr, cu, cd := permLevelToFlags(r.FormValue("perm_level"))
 	params := auth.UpsertRightParams{
-		TenantID:      tenantID,
 		PrincipalType: "apikey",
 		PrincipalID:   keyID,
 		ResourceType:  r.FormValue("resource_type"),
@@ -1551,50 +1292,29 @@ func (h *Handler) addAPIKeyRight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rights, _ := h.auth.GetAPIKeyRights(r.Context(), tenantID, keyID)
-	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
-	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
-	var key *auth.APIKey
-	for _, k := range keys {
-		if k.ID == keyID {
-			key = k
-			break
-		}
-	}
-	if key == nil {
-		http.NotFound(w, r)
-		return
-	}
-	data := apiKeyRightsPage{basePage: h.base(r, "apikeys"), Tenant: tenant, Key: key, Rights: rights}
+	rights, _ := h.auth.GetAPIKeyRights(r.Context(), keyID)
+	data := apiKeyRightsPage{basePage: h.base(r, "apikeys"), Key: key, Rights: rights}
 	h.renderPartial(w, "apikeys", "apikey-rights-panel", data)
 }
 
 func (h *Handler) removeAPIKeyRight(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	keyID := chi.URLParam(r, "keyID")
+
+	key, err := h.auth.GetAPIKeyByID(r.Context(), keyID)
+	if err != nil || key == nil {
+		http.NotFound(w, r)
+		return
+	}
 
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
-	_ = h.auth.DeleteRight(r.Context(), tenantID, "apikey", keyID,
+	_ = h.auth.DeleteRight(r.Context(), "apikey", keyID,
 		r.FormValue("resource_type"), r.FormValue("resource_id"))
 
-	rights, _ := h.auth.GetAPIKeyRights(r.Context(), tenantID, keyID)
-	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
-	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
-	var key *auth.APIKey
-	for _, k := range keys {
-		if k.ID == keyID {
-			key = k
-			break
-		}
-	}
-	if key == nil {
-		http.NotFound(w, r)
-		return
-	}
-	data := apiKeyRightsPage{basePage: h.base(r, "apikeys"), Tenant: tenant, Key: key, Rights: rights}
+	rights, _ := h.auth.GetAPIKeyRights(r.Context(), keyID)
+	data := apiKeyRightsPage{basePage: h.base(r, "apikeys"), Key: key, Rights: rights}
 	h.renderPartial(w, "apikeys", "apikey-rights-panel", data)
 }
 
@@ -1701,48 +1421,23 @@ func (rr ResourceRight) PermLevel() string {
 	}
 }
 
-// ── Perm mode handler ─────────────────────────────────────────────────────────
-
-func (h *Handler) setPermMode(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
-		return
-	}
-	mode := auth.PermMode(r.FormValue("perm_mode"))
-	if mode != auth.PermModeExplicit && mode != auth.PermModeOpen && mode != auth.PermModeInherit {
-		http.Error(w, "invalid perm_mode", http.StatusBadRequest)
-		return
-	}
-	if err := h.auth.SetTenantPermMode(r.Context(), tenantID, mode); err != nil {
-		http.Error(w, "failed to update permission mode", http.StatusInternalServerError)
-		return
-	}
-	// Return a small success partial that replaces just the select element label.
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<span class="badge badge-green">Saved</span>`)
-}
-
 // ── Per-resource rights handlers ──────────────────────────────────────────────
 
 // ── Project rights ────────────────────────────────────────────────────────────
 
 func (h *Handler) projectRightsPanel(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	projectID := chi.URLParam(r, "projectID")
 	project, err := h.repo.GetProject(r.Context(), projectID)
-	if err != nil || project == nil || project.TenantID != tenantID {
+	if err != nil || project == nil {
 		http.NotFound(w, r)
 		return
 	}
-	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "project", projectID)
-	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	raw, _ := h.auth.ListRightsByResource(r.Context(), "project", projectID)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), 500, 0)
 	users := filterNonAdminUsers(allUsers)
-	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
-	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), 500, 0)
 	h.renderPartial(w, "projects", "project-rights-panel", resourceRightsPage{
 		basePage:     h.base(r, "projects"),
-		Tenant:       tenant,
 		ResourceType: "project",
 		ResourceID:   projectID,
 		ResourceName: project.Name,
@@ -1753,10 +1448,9 @@ func (h *Handler) projectRightsPanel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) addProjectRight(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	projectID := chi.URLParam(r, "projectID")
 	project, err := h.repo.GetProject(r.Context(), projectID)
-	if err != nil || project == nil || project.TenantID != tenantID {
+	if err != nil || project == nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -1771,7 +1465,6 @@ func (h *Handler) addProjectRight(w http.ResponseWriter, r *http.Request) {
 	}
 	cc, cr, cu, cd := permLevelToFlags(r.FormValue("perm_level"))
 	params := auth.UpsertRightParams{
-		TenantID:      tenantID,
 		PrincipalType: pt,
 		PrincipalID:   pid,
 		ResourceType:  "project",
@@ -1788,14 +1481,12 @@ func (h *Handler) addProjectRight(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("cascade") == "on" {
 		h.cascadeProjectRight(r.Context(), params)
 	}
-	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "project", projectID)
-	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	raw, _ := h.auth.ListRightsByResource(r.Context(), "project", projectID)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), 500, 0)
 	users := filterNonAdminUsers(allUsers)
-	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
-	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), 500, 0)
 	h.renderPartial(w, "projects", "project-rights-panel", resourceRightsPage{
 		basePage:     h.base(r, "projects"),
-		Tenant:       tenant,
 		ResourceType: "project",
 		ResourceID:   projectID,
 		ResourceName: project.Name,
@@ -1806,23 +1497,20 @@ func (h *Handler) addProjectRight(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) removeProjectRight(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	projectID := chi.URLParam(r, "projectID")
 	project, err := h.repo.GetProject(r.Context(), projectID)
-	if err != nil || project == nil || project.TenantID != tenantID {
+	if err != nil || project == nil {
 		http.NotFound(w, r)
 		return
 	}
 	pt, pid, _ := parsePrincipal(r.FormValue("principal"))
-	_ = h.auth.DeleteRight(r.Context(), tenantID, pt, pid, "project", projectID)
-	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "project", projectID)
-	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	_ = h.auth.DeleteRight(r.Context(), pt, pid, "project", projectID)
+	raw, _ := h.auth.ListRightsByResource(r.Context(), "project", projectID)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), 500, 0)
 	users := filterNonAdminUsers(allUsers)
-	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
-	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), 500, 0)
 	h.renderPartial(w, "projects", "project-rights-panel", resourceRightsPage{
 		basePage:     h.base(r, "projects"),
-		Tenant:       tenant,
 		ResourceType: "project",
 		ResourceID:   projectID,
 		ResourceName: project.Name,
@@ -1835,7 +1523,6 @@ func (h *Handler) removeProjectRight(w http.ResponseWriter, r *http.Request) {
 // ── Bucket rights ─────────────────────────────────────────────────────────────
 
 func (h *Handler) bucketRightsPanel(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	bucketID := chi.URLParam(r, "bucketID")
 	bucket, err := h.repo.GetBucket(r.Context(), bucketID)
 	if err != nil || bucket == nil {
@@ -1843,18 +1530,16 @@ func (h *Handler) bucketRightsPanel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	project, err := h.repo.GetProject(r.Context(), bucket.ProjectID)
-	if err != nil || project == nil || project.TenantID != tenantID {
+	if err != nil || project == nil {
 		http.NotFound(w, r)
 		return
 	}
-	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "bucket", bucketID)
-	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	raw, _ := h.auth.ListRightsByResource(r.Context(), "bucket", bucketID)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), 500, 0)
 	users := filterNonAdminUsers(allUsers)
-	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
-	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), 500, 0)
 	h.renderPartial(w, "buckets", "bucket-rights-panel", resourceRightsPage{
 		basePage:     h.base(r, "buckets"),
-		Tenant:       tenant,
 		ResourceType: "bucket",
 		ResourceID:   bucketID,
 		ResourceName: bucket.Name,
@@ -1866,7 +1551,6 @@ func (h *Handler) bucketRightsPanel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) addBucketRight(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	bucketID := chi.URLParam(r, "bucketID")
 	bucket, err := h.repo.GetBucket(r.Context(), bucketID)
 	if err != nil || bucket == nil {
@@ -1874,7 +1558,7 @@ func (h *Handler) addBucketRight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	project, err := h.repo.GetProject(r.Context(), bucket.ProjectID)
-	if err != nil || project == nil || project.TenantID != tenantID {
+	if err != nil || project == nil {
 		http.NotFound(w, r)
 		return
 	}
@@ -1889,7 +1573,6 @@ func (h *Handler) addBucketRight(w http.ResponseWriter, r *http.Request) {
 	}
 	cc, cr, cu, cd := permLevelToFlags(r.FormValue("perm_level"))
 	params := auth.UpsertRightParams{
-		TenantID:      tenantID,
 		PrincipalType: pt,
 		PrincipalID:   pid,
 		ResourceType:  "bucket",
@@ -1906,14 +1589,12 @@ func (h *Handler) addBucketRight(w http.ResponseWriter, r *http.Request) {
 	if r.FormValue("cascade") == "on" {
 		h.cascadeBucketRight(r.Context(), params)
 	}
-	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "bucket", bucketID)
-	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	raw, _ := h.auth.ListRightsByResource(r.Context(), "bucket", bucketID)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), 500, 0)
 	users := filterNonAdminUsers(allUsers)
-	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
-	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), 500, 0)
 	h.renderPartial(w, "buckets", "bucket-rights-panel", resourceRightsPage{
 		basePage:     h.base(r, "buckets"),
-		Tenant:       tenant,
 		ResourceType: "bucket",
 		ResourceID:   bucketID,
 		ResourceName: bucket.Name,
@@ -1925,7 +1606,6 @@ func (h *Handler) addBucketRight(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) removeBucketRight(w http.ResponseWriter, r *http.Request) {
-	tenantID := chi.URLParam(r, "tenantID")
 	bucketID := chi.URLParam(r, "bucketID")
 	bucket, err := h.repo.GetBucket(r.Context(), bucketID)
 	if err != nil || bucket == nil {
@@ -1933,20 +1613,18 @@ func (h *Handler) removeBucketRight(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	project, err := h.repo.GetProject(r.Context(), bucket.ProjectID)
-	if err != nil || project == nil || project.TenantID != tenantID {
+	if err != nil || project == nil {
 		http.NotFound(w, r)
 		return
 	}
 	pt, pid, _ := parsePrincipal(r.FormValue("principal"))
-	_ = h.auth.DeleteRight(r.Context(), tenantID, pt, pid, "bucket", bucketID)
-	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "bucket", bucketID)
-	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	_ = h.auth.DeleteRight(r.Context(), pt, pid, "bucket", bucketID)
+	raw, _ := h.auth.ListRightsByResource(r.Context(), "bucket", bucketID)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), 500, 0)
 	users := filterNonAdminUsers(allUsers)
-	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
-	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), 500, 0)
 	h.renderPartial(w, "buckets", "bucket-rights-panel", resourceRightsPage{
 		basePage:     h.base(r, "buckets"),
-		Tenant:       tenant,
 		ResourceType: "bucket",
 		ResourceID:   bucketID,
 		ResourceName: bucket.Name,
@@ -1966,19 +1644,16 @@ func (h *Handler) documentRightsPanel(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	tenant, project, _, err := h.resolveDocumentContext(r.Context(), doc)
-	if err != nil {
+	if _, _, err := h.resolveDocumentContext(r.Context(), doc); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	tenantID := project.TenantID
-	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "document", documentID)
-	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	raw, _ := h.auth.ListRightsByResource(r.Context(), "document", documentID)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), 500, 0)
 	users := filterNonAdminUsers(allUsers)
-	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), 500, 0)
 	h.renderPartial(w, "docdetail", "document-rights-panel", resourceRightsPage{
 		basePage:     h.base(r, "docdetail"),
-		Tenant:       tenant,
 		ResourceType: "document",
 		ResourceID:   documentID,
 		ResourceName: doc.Name,
@@ -1995,12 +1670,10 @@ func (h *Handler) addDocumentRight(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	tenant, project, _, err := h.resolveDocumentContext(r.Context(), doc)
-	if err != nil {
+	if _, _, err := h.resolveDocumentContext(r.Context(), doc); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	tenantID := project.TenantID
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
@@ -2012,7 +1685,6 @@ func (h *Handler) addDocumentRight(w http.ResponseWriter, r *http.Request) {
 	}
 	cc, cr, cu, cd := permLevelToFlags(r.FormValue("perm_level"))
 	params := auth.UpsertRightParams{
-		TenantID:      tenantID,
 		PrincipalType: pt,
 		PrincipalID:   pid,
 		ResourceType:  "document",
@@ -2026,13 +1698,12 @@ func (h *Handler) addDocumentRight(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "document", documentID)
-	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	raw, _ := h.auth.ListRightsByResource(r.Context(), "document", documentID)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), 500, 0)
 	users := filterNonAdminUsers(allUsers)
-	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), 500, 0)
 	h.renderPartial(w, "docdetail", "document-rights-panel", resourceRightsPage{
 		basePage:     h.base(r, "docdetail"),
-		Tenant:       tenant,
 		ResourceType: "document",
 		ResourceID:   documentID,
 		ResourceName: doc.Name,
@@ -2049,21 +1720,18 @@ func (h *Handler) removeDocumentRight(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	tenant, project, _, err := h.resolveDocumentContext(r.Context(), doc)
-	if err != nil {
+	if _, _, err := h.resolveDocumentContext(r.Context(), doc); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	tenantID := project.TenantID
 	pt, pid, _ := parsePrincipal(r.FormValue("principal"))
-	_ = h.auth.DeleteRight(r.Context(), tenantID, pt, pid, "document", documentID)
-	raw, _ := h.auth.ListRightsByResource(r.Context(), tenantID, "document", documentID)
-	allUsers, _, _ := h.auth.ListUsers(r.Context(), tenantID, 500, 0)
+	_ = h.auth.DeleteRight(r.Context(), pt, pid, "document", documentID)
+	raw, _ := h.auth.ListRightsByResource(r.Context(), "document", documentID)
+	allUsers, _, _ := h.auth.ListUsers(r.Context(), 500, 0)
 	users := filterNonAdminUsers(allUsers)
-	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), 500, 0)
 	h.renderPartial(w, "docdetail", "document-rights-panel", resourceRightsPage{
 		basePage:     h.base(r, "docdetail"),
-		Tenant:       tenant,
 		ResourceType: "document",
 		ResourceID:   documentID,
 		ResourceName: doc.Name,
