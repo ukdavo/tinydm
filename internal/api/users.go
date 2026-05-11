@@ -18,17 +18,16 @@ func NewUserHandler(store *auth.Store) *UserHandler {
 	return &UserHandler{store: store}
 }
 
-// ListUsers handles GET /api/v1/tenants/{tenantID}/users
+// ListUsers handles GET /api/v1/users
 //
 // Supported query parameters:
 //
 //	limit   — page size (default 50, max 500)
 //	offset  — pagination offset (default 0)
 func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
-	tenant := tenantFromCtx(r)
 	page := pageParams(r)
 
-	users, total, err := h.store.ListUsers(r.Context(), tenant.ID, page.Limit, page.Offset)
+	users, total, err := h.store.ListUsers(r.Context(), page.Limit, page.Offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -39,7 +38,6 @@ func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	// Strip password hashes before returning.
 	type safeUser struct {
 		ID        string `json:"id"`
-		TenantID  string `json:"tenant_id"`
 		Username  string `json:"username"`
 		Email     string `json:"email"`
 		FirstName string `json:"first_name"`
@@ -51,7 +49,6 @@ func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	for i, u := range users {
 		safe[i] = safeUser{
 			ID:        u.ID,
-			TenantID:  u.TenantID,
 			Username:  u.Username,
 			Email:     u.Email,
 			FirstName: u.FirstName,
@@ -63,7 +60,7 @@ func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	writePaged(w, safe, total, page.Limit, page.Offset)
 }
 
-// ChangePassword handles PATCH /api/v1/tenants/{tenantID}/users/{userID}/password
+// ChangePassword handles PATCH /api/v1/users/{userID}/password
 //
 // Restricted to admin/superadmin (route registration enforces this). Requires
 // a JSON body of {"password": "..."} with at least 8 characters.
@@ -94,17 +91,16 @@ func (h *UserHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ListAPIKeys handles GET /api/v1/tenants/{tenantID}/apikeys
+// ListAPIKeys handles GET /api/v1/apikeys
 //
 // Supported query parameters:
 //
 //	limit   — page size (default 50, max 500)
 //	offset  — pagination offset (default 0)
 func (h *UserHandler) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
-	tenant := tenantFromCtx(r)
 	page := pageParams(r)
 
-	keys, total, err := h.store.ListAPIKeys(r.Context(), tenant.ID, page.Limit, page.Offset)
+	keys, total, err := h.store.ListAPIKeys(r.Context(), page.Limit, page.Offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -115,7 +111,6 @@ func (h *UserHandler) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
 	// Strip key hashes; expose only safe fields.
 	type safeKey struct {
 		ID        string `json:"id"`
-		TenantID  string `json:"tenant_id"`
 		Name      string `json:"name"`
 		KeyPrefix string `json:"key_prefix"`
 	}
@@ -123,7 +118,6 @@ func (h *UserHandler) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
 	for i, k := range keys {
 		safe[i] = safeKey{
 			ID:        k.ID,
-			TenantID:  k.TenantID,
 			Name:      k.Name,
 			KeyPrefix: k.KeyPrefix,
 		}
@@ -131,9 +125,8 @@ func (h *UserHandler) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
 	writePaged(w, safe, total, page.Limit, page.Offset)
 }
 
-// CreateAPIKey handles POST /api/v1/tenants/{tenantID}/apikeys
+// CreateAPIKey handles POST /api/v1/apikeys
 func (h *UserHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
-	tenant := tenantFromCtx(r)
 	p, _ := auth.PrincipalFromContext(r.Context())
 
 	var body struct {
@@ -155,7 +148,7 @@ func (h *UserHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	uid := p.ID
-	key, err := h.store.CreateAPIKey(r.Context(), tenant.ID, &uid, body.Name, hash, prefix, nil)
+	key, err := h.store.CreateAPIKey(r.Context(), &uid, body.Name, hash, prefix, nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -163,19 +156,17 @@ func (h *UserHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":         key.ID,
-		"tenant_id":  key.TenantID,
 		"name":       key.Name,
 		"key_prefix": key.KeyPrefix,
 		"key":        plaintext, // one-time plaintext; not stored
 	})
 }
 
-// RevokeAPIKey handles POST /api/v1/tenants/{tenantID}/apikeys/{keyID}/revoke
+// RevokeAPIKey handles POST /api/v1/apikeys/{keyID}/revoke
 func (h *UserHandler) RevokeAPIKey(w http.ResponseWriter, r *http.Request) {
-	tenant := tenantFromCtx(r)
 	id := chi.URLParam(r, "keyID")
 
-	if err := h.store.RevokeAPIKey(r.Context(), tenant.ID, id); err != nil {
+	if err := h.store.RevokeAPIKey(r.Context(), id); err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}

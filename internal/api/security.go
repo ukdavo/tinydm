@@ -5,10 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
-
-	"github.com/go-chi/chi/v5"
-
-	"tinydm/internal/auth"
 )
 
 // maxUploadBytes is the hard cap on file upload body size (512 MiB).
@@ -19,36 +15,6 @@ const maxUploadBytes = 512 << 20
 // maxJSONBytes is the maximum size accepted for JSON request bodies (1 MiB).
 // Prevents memory exhaustion from oversized payloads on non-upload endpoints.
 const maxJSONBytes = 1 << 20
-
-// ─── Tenant isolation ─────────────────────────────────────────────────────────
-
-// RequireSameTenant rejects requests where the authenticated principal's
-// tenant does not match the {tenantID} URL parameter. It must be placed inside
-// a route group that has already resolved {tenantID} (i.e. after RequireAuth
-// and TenantCtx).
-//
-// Superadmins are exempt: they manage all domains and are not scoped to any
-// single tenant. All other roles (admin, user) are strictly tenant-isolated.
-func RequireSameTenant(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p, ok := auth.PrincipalFromContext(r.Context())
-		if !ok {
-			writeError(w, http.StatusUnauthorized, "authentication required")
-			return
-		}
-		// Superadmin has unrestricted cross-tenant access.
-		if p.IsSuperAdmin() {
-			next.ServeHTTP(w, r)
-			return
-		}
-		tenantID := chi.URLParam(r, "tenantID")
-		if tenantID != "" && p.TenantID != tenantID {
-			writeError(w, http.StatusForbidden, "access denied: tenant mismatch")
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
 
 // ─── Security headers ─────────────────────────────────────────────────────────
 
