@@ -405,15 +405,15 @@ Tokens that can authenticate requests without a password. The plaintext key is s
 
 ### `rights`
 
-Fine-grained RBAC grants. A right connects a principal (user or group) to a resource type (and optionally a specific resource ID) and records which CRUD operations are permitted.
+Fine-grained RBAC grants. A right connects a principal (user or API key) to a resource (and optionally a specific resource ID) and records which CRUD operations are permitted.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | TEXT PK | UUID |
 | `tenant_id` | TEXT FK → `tenants.id` | CASCADE DELETE |
-| `principal_type` | TEXT | `'user'` or `'group'`; enforced by CHECK constraint |
-| `principal_id` | TEXT | UUID of the user or group |
-| `resource_type` | TEXT | `'tenant'`, `'project'`, or `'bucket'`; enforced by CHECK constraint |
+| `principal_type` | TEXT | `'user'` or `'apikey'`; enforced by CHECK constraint |
+| `principal_id` | TEXT | UUID of the user or API key |
+| `resource_type` | TEXT | `'project'`, `'bucket'`, or `'document'`; enforced by CHECK constraint |
 | `resource_id` | TEXT | UUID of a specific resource, or `'*'` for all resources of that type |
 | `can_create` | INTEGER | 0/1 boolean |
 | `can_read` | INTEGER | 0/1 boolean |
@@ -422,7 +422,7 @@ Fine-grained RBAC grants. A right connects a principal (user or group) to a reso
 
 **Indexes:** `idx_rights_principal` on `(principal_type, principal_id)`, `idx_rights_tenant` on `(tenant_id)`
 
-**Design rationale:** The `resource_id = '*'` wildcard allows a single row to grant access to all resources of a type (e.g. "this group can read all projects in this tenant") without enumerating every resource. The four separate boolean columns make it straightforward to grant asymmetric rights (e.g. read-only access) without a bitmask.
+**Design rationale:** The `resource_id = '*'` wildcard allows a single row to grant access to all resources of a type (e.g. "this user can read all projects in this tenant") without enumerating every resource. The four separate boolean columns make it straightforward to grant asymmetric rights (e.g. read-only access) without a bitmask. Permission levels are hierarchical: Delete implies Update implies Create implies Read — the UI enforces this by exposing a single level selector rather than independent checkboxes. Admin and superadmin users bypass the rights table entirely; rights are only evaluated for `user`-type principals.
 
 ---
 

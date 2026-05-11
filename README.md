@@ -10,7 +10,7 @@ A simple, self-hosted document management system. Small footprint, easy to deplo
 
 - **Multi-tenant hierarchy** — Tenant → Project → Bucket → Document
 - **Three authentication methods** — JWT, HTTP Basic, API key
-- **Role-based access control** — admin / user roles with per-resource rights
+- **Role-based access control** — three roles (superadmin / admin / user) with per-resource rights; admin and superadmin bypass rights checks automatically
 - **Document versioning** — automatic snapshot on every update; restore to any previous version
 - **Tags** — add, remove, or filter documents by free-form tags
 - **Custom properties** — runtime-defined key/value metadata per document

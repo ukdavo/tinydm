@@ -327,7 +327,7 @@ These variables are only used on the very first startup when the database has no
 On the very first startup, if `TINYDM_BOOTSTRAP_ADMIN_PASS` is set and the database contains no users, TinyDM:
 
 1. Creates the bootstrap tenant (using `TINYDM_BOOTSTRAP_TENANT_ID` and `TINYDM_BOOTSTRAP_TENANT_NAME`).
-2. Creates an admin user with the supplied credentials.
+2. Creates a superadmin account with the supplied credentials.
 
 This is a one-time idempotent operation. To sign in via the admin UI, use:
 
