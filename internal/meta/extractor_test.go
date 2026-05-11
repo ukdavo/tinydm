@@ -469,3 +469,70 @@ func TestExtract_Video_GarbageData_NoCrash(t *testing.T) {
 	props := Extract("video/mp4", bytes.NewReader([]byte("not a video")))
 	_ = props
 }
+
+// ─── Text tests ───────────────────────────────────────────────────────────────
+
+func TestExtract_Text_UTF8_Lines(t *testing.T) {
+	data := []byte("line one\nline two\nline three\n")
+	props := Extract("text/plain", bytes.NewReader(data))
+	if props["text.encoding"] != "utf-8" {
+		t.Errorf("text.encoding: got %q, want %q", props["text.encoding"], "utf-8")
+	}
+	if props["text.lines"] != "3" {
+		t.Errorf("text.lines: got %q, want %q", props["text.lines"], "3")
+	}
+}
+
+func TestExtract_Text_UTF8BOM(t *testing.T) {
+	data := append([]byte{0xEF, 0xBB, 0xBF}, []byte("hello\nworld\n")...)
+	props := Extract("text/plain", bytes.NewReader(data))
+	if props["text.encoding"] != "utf-8-bom" {
+		t.Errorf("text.encoding: got %q, want %q", props["text.encoding"], "utf-8-bom")
+	}
+}
+
+func TestExtract_Text_UTF16LE(t *testing.T) {
+	data := []byte{0xFF, 0xFE, 0x68, 0x00, 0x69, 0x00} // BOM + "hi" in UTF-16 LE
+	props := Extract("text/plain", bytes.NewReader(data))
+	if props["text.encoding"] != "utf-16-le" {
+		t.Errorf("text.encoding: got %q, want %q", props["text.encoding"], "utf-16-le")
+	}
+}
+
+func TestExtract_Text_UTF16BE(t *testing.T) {
+	data := []byte{0xFE, 0xFF, 0x00, 0x68, 0x00, 0x69} // BOM + "hi" in UTF-16 BE
+	props := Extract("text/plain", bytes.NewReader(data))
+	if props["text.encoding"] != "utf-16-be" {
+		t.Errorf("text.encoding: got %q, want %q", props["text.encoding"], "utf-16-be")
+	}
+}
+
+func TestExtract_Text_Binary_Skipped(t *testing.T) {
+	// Binary data — not valid UTF-8, no BOM — should produce no props.
+	data := []byte{0x80, 0x81, 0x82, 0x83, 0xFF, 0xFD}
+	props := Extract("text/plain", bytes.NewReader(data))
+	if _, ok := props["text.encoding"]; ok {
+		t.Error("expected no props for binary data passed as text/plain")
+	}
+}
+
+func TestExtract_Text_JSON(t *testing.T) {
+	data := []byte(`{"key":"value"}` + "\n")
+	props := Extract("application/json", bytes.NewReader(data))
+	if props["text.encoding"] != "utf-8" {
+		t.Errorf("text.encoding: got %q, want %q", props["text.encoding"], "utf-8")
+	}
+	if props["text.lines"] != "1" {
+		t.Errorf("text.lines: got %q, want %q", props["text.lines"], "1")
+	}
+}
+
+func TestExtract_Text_EmptyFile(t *testing.T) {
+	props := Extract("text/plain", bytes.NewReader([]byte{}))
+	if props["text.encoding"] != "utf-8" {
+		t.Errorf("text.encoding: got %q, want %q", props["text.encoding"], "utf-8")
+	}
+	if props["text.lines"] != "0" {
+		t.Errorf("text.lines: got %q, want %q", props["text.lines"], "0")
+	}
+}
