@@ -89,6 +89,21 @@ func sessionReq(t *testing.T, method, rawURL, token string, body io.Reader) *htt
 	return req
 }
 
+// createNonAdminToken seeds a non-admin user in authStore and returns a JWT session token.
+func createNonAdminToken(t *testing.T, authStore *auth.Store) string {
+	t.Helper()
+	hash, _ := auth.HashPassword("userpass")
+	user, err := authStore.CreateUser(context.Background(), "bob", "bob@test.local", "Bob", "Jones", hash, auth.UserTypeUser)
+	if err != nil {
+		t.Fatalf("CreateUser non-admin: %v", err)
+	}
+	token, err := auth.NewJWT(webTestJWTSecret, 60, user.ID, user.Username, user.UserType)
+	if err != nil {
+		t.Fatalf("NewJWT non-admin: %v", err)
+	}
+	return token
+}
+
 // TestAuditLog_Renders verifies that GET /admin/audit returns 200.
 func TestAuditLog_Renders(t *testing.T) {
 	srv, _, _, _, token := newWebServer(t)
@@ -334,5 +349,63 @@ func TestDocumentDetailPage_Renders(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status: got %d, want 200; body: %s", resp.StatusCode, body)
+	}
+}
+
+// TestRequireAdmin_NonAdminForbiddenOnCreateProject verifies that a non-admin user
+// gets 403 when POSTing to /app/projects.
+func TestRequireAdmin_NonAdminForbiddenOnCreateProject(t *testing.T) {
+	srv, authStore, _, _, _ := newWebServer(t)
+	userToken := createNonAdminToken(t, authStore)
+
+	form := url.Values{"name": {"test-proj"}}
+	req := sessionReq(t, http.MethodPost, srv.URL+"/app/projects", userToken,
+		strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST /app/projects: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden, got %d", resp.StatusCode)
+	}
+}
+
+// TestNonAdminCanAccessProjects verifies that a non-admin user gets 200 on GET /app/projects.
+func TestNonAdminCanAccessProjects(t *testing.T) {
+	srv, authStore, _, _, _ := newWebServer(t)
+	userToken := createNonAdminToken(t, authStore)
+
+	req := sessionReq(t, http.MethodGet, srv.URL+"/app/projects", userToken, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /app/projects: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status: got %d, want 200; body: %s", resp.StatusCode, body)
+	}
+}
+
+// TestRequireAdmin_NonAdminForbiddenOnUsers verifies that a non-admin user
+// gets 403 when accessing the users page.
+func TestRequireAdmin_NonAdminForbiddenOnUsers(t *testing.T) {
+	srv, authStore, _, _, _ := newWebServer(t)
+	userToken := createNonAdminToken(t, authStore)
+
+	req := sessionReq(t, http.MethodGet, srv.URL+"/app/users", userToken, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /app/users: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden, got %d", resp.StatusCode)
 	}
 }
