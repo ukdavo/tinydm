@@ -12,16 +12,14 @@ import (
 
 // Claims are the custom JWT claims used by TinyDM.
 type Claims struct {
-	TenantID string `json:"tid"`
 	Username string `json:"usr"`
 	UserType string `json:"typ"`
 	jwt.RegisteredClaims
 }
 
 // NewJWT creates a signed HS256 JWT for the given user.
-func NewJWT(secret string, expiryMinutes int, userID, tenantID, username string, userType UserType) (string, error) {
+func NewJWT(secret string, expiryMinutes int, userID, username string, userType UserType) (string, error) {
 	claims := Claims{
-		TenantID: tenantID,
 		Username: username,
 		UserType: string(userType),
 		RegisteredClaims: jwt.RegisteredClaims{
