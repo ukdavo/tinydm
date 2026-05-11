@@ -169,6 +169,7 @@ func extractOOXML(contentType string, r io.ReadSeeker, props map[string]string) 
 		if err != nil {
 			break
 		}
+		defer rc.Close()
 		type coreProps struct {
 			Title   string `xml:"title"`
 			Creator string `xml:"creator"`
@@ -182,7 +183,6 @@ func extractOOXML(contentType string, r io.ReadSeeker, props map[string]string) 
 				props["office.author"] = cp.Creator
 			}
 		}
-		rc.Close()
 		break
 	}
 
@@ -194,6 +194,7 @@ func extractOOXML(contentType string, r io.ReadSeeker, props map[string]string) 
 		if err != nil {
 			break
 		}
+		defer rc.Close()
 		dec := xml.NewDecoder(rc)
 		var cur string
 		counts := map[string]int{}
@@ -215,7 +216,6 @@ func extractOOXML(contentType string, r io.ReadSeeker, props map[string]string) 
 				}
 			}
 		}
-		rc.Close()
 		switch contentType {
 		case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
 			if v, ok := counts["Slides"]; ok && v > 0 {
@@ -415,5 +415,7 @@ func extractText(r io.ReadSeeker, props map[string]string) {
 		return
 	}
 	props["text.encoding"] = enc
-	props["text.lines"] = strconv.Itoa(bytes.Count(data, []byte{'\n'}))
+	if enc == "utf-8" || enc == "utf-8-bom" {
+		props["text.lines"] = strconv.Itoa(bytes.Count(data, []byte{'\n'}))
+	}
 }
