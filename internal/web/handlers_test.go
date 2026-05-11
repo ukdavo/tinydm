@@ -209,6 +209,24 @@ func TestPasswordChange_Web_ReturnsUserRow(t *testing.T) {
 	}
 }
 
+// TestTenantsPage_Renders verifies that GET /admin/tenants returns 200 and
+// renders without template errors.
+func TestTenantsPage_Renders(t *testing.T) {
+	srv, _, _, _, token := newWebServer(t)
+
+	req := sessionReq(t, http.MethodGet, srv.URL+"/admin/tenants", token, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET tenants: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status: got %d, want 200; body: %s", resp.StatusCode, body)
+	}
+}
+
 // TestAPIKeysPage_Renders verifies that GET /admin/tenants/{tenantID}/apikeys
 // returns 200 and renders without template errors.
 func TestAPIKeysPage_Renders(t *testing.T) {
