@@ -302,9 +302,18 @@ func (h *Handler) deleteTenant(w http.ResponseWriter, r *http.Request) {
 
 // ── Projects ──────────────────────────────────────────────────────────────────
 
+type tenantStats struct {
+	Projects  int
+	Buckets   int
+	Documents int
+	Users     int
+	APIKeys   int
+}
+
 type projectsData struct {
 	basePage
 	Tenant   *repo.Tenant
+	Stats    tenantStats
 	Projects []*repo.Project
 	Pager    WebPagination
 }
@@ -318,9 +327,18 @@ func (h *Handler) projects(w http.ResponseWriter, r *http.Request) {
 	}
 	page, limit := parsePage(r)
 	projects, total, _ := h.repo.ListProjects(r.Context(), tenantID, repo.PageOpts{Limit: limit, Offset: pageOffset(page, limit)})
+
+	var stats tenantStats
+	stats.Projects, _ = h.repo.CountProjects(r.Context(), tenantID)
+	stats.Buckets, _ = h.repo.CountBuckets(r.Context(), tenantID)
+	stats.Documents, _ = h.repo.CountDocuments(r.Context(), tenantID)
+	stats.Users, _ = h.auth.CountUsersByTenant(r.Context(), tenantID)
+	stats.APIKeys, _ = h.auth.CountAPIKeysByTenant(r.Context(), tenantID)
+
 	h.render(w, "projects", projectsData{
 		basePage: h.base(r, "projects"),
 		Tenant:   tenant,
+		Stats:    stats,
 		Projects: projects,
 		Pager:    newWebPagination(total, page, limit, ""),
 	})
