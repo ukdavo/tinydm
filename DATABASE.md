@@ -21,18 +21,8 @@ File content is **not** stored in the database. Instead, a separate content-addr
 
 ```mermaid
 erDiagram
-    tenants {
-        TEXT id PK
-        TEXT name
-        TEXT description
-        DATETIME created_at
-        DATETIME updated_at
-        DATETIME deleted_at
-    }
-
     projects {
         TEXT id PK
-        TEXT tenant_id FK
         TEXT name
         TEXT description
         DATETIME deleted_at
@@ -84,7 +74,6 @@ erDiagram
 
     users {
         TEXT id PK
-        TEXT tenant_id FK
         TEXT username
         TEXT email
         TEXT password_hash
@@ -95,7 +84,6 @@ erDiagram
 
     groups {
         TEXT id PK
-        TEXT tenant_id FK
         TEXT name
         TEXT description
         DATETIME deleted_at
@@ -109,7 +97,6 @@ erDiagram
 
     api_keys {
         TEXT id PK
-        TEXT tenant_id FK
         TEXT user_id FK
         TEXT name
         TEXT key_hash
@@ -120,7 +107,6 @@ erDiagram
 
     rights {
         TEXT id PK
-        TEXT tenant_id FK
         TEXT principal_type
         TEXT principal_id
         TEXT resource_type
@@ -133,20 +119,12 @@ erDiagram
 
     audit_log {
         TEXT id PK
-        TEXT tenant_id
         TEXT principal
         TEXT action
         TEXT resource
         TEXT detail
         DATETIME created_at
     }
-
-    tenants ||--o{ projects        : "has"
-    tenants ||--o{ users           : "has"
-    tenants ||--o{ groups          : "has"
-    tenants ||--o{ api_keys        : "has"
-    tenants ||--o{ rights          : "has"
-    tenants ||--o{ audit_log       : "records"
 
     projects ||--o{ buckets        : "contains"
 
@@ -162,47 +140,24 @@ erDiagram
     users    |o--o{ api_keys       : "owns"
 ```
 
-> **Note:** `audit_log.tenant_id` is denormalised with no foreign key constraint, so audit records are preserved even when a tenant is deleted.
-
-All child tables cascade-delete when their parent is deleted. Tenants, projects, buckets, documents, users, and groups use **soft-delete** (`deleted_at` column) so records are hidden from queries but retained for audit purposes.
+All child tables cascade-delete when their parent is deleted. Projects, buckets, documents, users, and groups use **soft-delete** (`deleted_at` column) so records are hidden from queries but retained for audit purposes.
 
 ---
 
 ## Tables
 
-### `tenants`
-
-The top-level organisational unit. Every other resource belongs to a tenant.
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | TEXT PK | UUID |
-| `name` | TEXT UNIQUE | Human-readable display name |
-| `description` | TEXT | Optional description |
-| `perm_mode` | TEXT | `'explicit'`, `'open'`, or `'inherit'`; default `'explicit'` |
-| `created_at` | DATETIME | |
-| `updated_at` | DATETIME | |
-| `deleted_at` | DATETIME | NULL = active; set = soft-deleted |
-
-**Design rationale:** Multi-tenancy is enforced at the application layer — every query that touches a tenant's data includes a `tenant_id` filter. The tenant ID is embedded in JWT claims and API-key records so the correct tenant is resolved without an extra database lookup on every request.
-
----
-
 ### `projects`
 
-A logical grouping of buckets within a tenant. Projects allow large organisations to separate work by team, client, or workstream.
+A logical grouping of buckets. Projects allow large organisations to separate work by team, client, or workstream.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | TEXT PK | UUID |
-| `tenant_id` | TEXT FK → `tenants.id` | CASCADE DELETE |
-| `name` | TEXT | Unique within the tenant |
+| `name` | TEXT UNIQUE | Globally unique display name |
 | `description` | TEXT | |
 | `created_at` | DATETIME | |
 | `updated_at` | DATETIME | |
 | `deleted_at` | DATETIME | Soft-delete |
-
-**Indexes:** `idx_projects_tenant` on `(tenant_id)`
 
 ---
 
@@ -328,59 +283,52 @@ An append-only record of every mutating operation. Rows are written asynchronous
 | Column | Type | Notes |
 |---|---|---|
 | `id` | TEXT PK | UUID |
-| `tenant_id` | TEXT | Denormalised for fast per-tenant queries (no FK — intentional) |
 | `principal` | TEXT | Username or API-key `key_prefix` of the actor |
 | `action` | TEXT | Dot-notation action string, e.g. `document.create` |
 | `resource` | TEXT | UUID of the affected resource |
 | `detail` | TEXT | Optional JSON payload with additional context |
 | `created_at` | DATETIME | |
 
-**Indexes:** `idx_audit_tenant` on `(tenant_id)`, `idx_audit_principal` on `(principal)`, `idx_audit_created` on `(created_at)`
+**Indexes:** `idx_audit_principal` on `(principal)`, `idx_audit_created` on `(created_at)`
 
-**Design rationale:** `tenant_id` is denormalised (no FK constraint) so that deleting a tenant does not cascade-delete its audit history — the record of what happened is retained for compliance purposes even if the tenant is removed. The three indexes support the most common query patterns: filtering by tenant (always), narrowing by principal, and date-range slicing.
+**Design rationale:** Rows are written asynchronously and are never updated or deleted, providing a tamper-evident history of all mutating operations. The two indexes support the most common query patterns: narrowing by principal and date-range slicing.
 
 ---
 
 ### `users`
 
-Accounts that can authenticate via password (JWT or HTTP Basic) within a tenant.
+Accounts that can authenticate via password (JWT or HTTP Basic).
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | TEXT PK | UUID |
-| `tenant_id` | TEXT FK → `tenants.id` | CASCADE DELETE |
-| `username` | TEXT | Unique within the tenant |
-| `email` | TEXT | Unique within the tenant |
+| `username` | TEXT UNIQUE | Globally unique login name |
+| `email` | TEXT UNIQUE | Globally unique email address |
 | `first_name` | TEXT | |
 | `last_name` | TEXT | |
 | `password_hash` | TEXT | bcrypt hash; never exposed via the API |
-| `user_type` | TEXT | `'superadmin'`, `'admin'`, or `'user'`; enforced by CHECK constraint |
+| `user_type` | TEXT | `'admin'` or `'user'`; enforced by CHECK constraint |
 | `is_active` | INTEGER | 1 = active, 0 = deactivated |
 | `created_at` | DATETIME | |
 | `updated_at` | DATETIME | |
 | `deleted_at` | DATETIME | Soft-delete |
 
-**Indexes:** `idx_users_tenant` on `(tenant_id)`
-
-**Design rationale:** `user_type` drives the three-level RBAC model. Superadmins have unrestricted cross-tenant access; admins have unrestricted access within their tenant; users rely on `rights` grants for fine-grained access. `is_active` allows accounts to be suspended without deleting them, preserving audit trail references.
+**Design rationale:** `user_type` drives the two-level RBAC model. Admins have unrestricted system-wide access; users rely on `rights` grants for fine-grained access. `is_active` allows accounts to be suspended without deleting them, preserving audit trail references.
 
 ---
 
 ### `groups`
 
-Named collections of users within a tenant. Rights can be granted to a group to avoid per-user grant management.
+Named collections of users. Rights can be granted to a group to avoid per-user grant management.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | TEXT PK | UUID |
-| `tenant_id` | TEXT FK → `tenants.id` | CASCADE DELETE |
-| `name` | TEXT | Unique within the tenant |
+| `name` | TEXT UNIQUE | Globally unique group name |
 | `description` | TEXT | |
 | `created_at` | DATETIME | |
 | `updated_at` | DATETIME | |
 | `deleted_at` | DATETIME | Soft-delete |
-
-**Indexes:** `idx_groups_tenant` on `(tenant_id)`
 
 ---
 
@@ -407,8 +355,7 @@ Tokens that can authenticate requests without a password. The plaintext key is s
 | Column | Type | Notes |
 |---|---|---|
 | `id` | TEXT PK | UUID |
-| `tenant_id` | TEXT FK → `tenants.id` | CASCADE DELETE |
-| `user_id` | TEXT FK → `users.id` (nullable) | SET NULL on user delete; NULL = tenant-scoped admin key |
+| `user_id` | TEXT FK → `users.id` (nullable) | SET NULL on user delete; NULL = system-scoped admin key |
 | `name` | TEXT | Human-readable label |
 | `key_hash` | TEXT UNIQUE | SHA-256(plaintext); used for lookup on every request |
 | `key_prefix` | TEXT | First 12 characters of the plaintext key (`tdm_xxxxxxxx`) for display |
@@ -417,9 +364,9 @@ Tokens that can authenticate requests without a password. The plaintext key is s
 | `last_used_at` | DATETIME | Updated on each successful authentication |
 | `revoked_at` | DATETIME | NULL = active; set = revoked |
 
-**Indexes:** `idx_api_keys_tenant` on `(tenant_id)`, `idx_api_keys_key_hash` on `(key_hash)`
+**Indexes:** `idx_api_keys_key_hash` on `(key_hash)`
 
-**Design rationale:** Every inbound API-key request hashes the presented key and looks up `key_hash` using the unique index — O(log n), constant cost regardless of how many keys a tenant has. `key_prefix` gives administrators enough information to identify which key was used in logs without exposing the secret. A key tied to a user (`user_id` NOT NULL) inherits that user's rights; a tenant-scoped key (NULL) has admin-level access.
+**Design rationale:** Every inbound API-key request hashes the presented key and looks up `key_hash` using the unique index — O(log n), constant cost regardless of how many keys exist. `key_prefix` gives administrators enough information to identify which key was used in logs without exposing the secret. A key tied to a user (`user_id` NOT NULL) inherits that user's rights; a system-scoped key (NULL) has admin-level access.
 
 ---
 
@@ -430,19 +377,18 @@ Fine-grained RBAC grants. A right connects a principal (user or API key) to a re
 | Column | Type | Notes |
 |---|---|---|
 | `id` | TEXT PK | UUID |
-| `tenant_id` | TEXT FK → `tenants.id` | CASCADE DELETE |
 | `principal_type` | TEXT | `'user'`, `'group'`, or `'apikey'`; enforced by CHECK constraint |
 | `principal_id` | TEXT | UUID of the user, group, or API key |
-| `resource_type` | TEXT | `'tenant'`, `'project'`, `'bucket'`, or `'document'`; enforced by CHECK constraint |
+| `resource_type` | TEXT | `'project'`, `'bucket'`, or `'document'`; enforced by CHECK constraint |
 | `resource_id` | TEXT | UUID of a specific resource, or `'*'` for all resources of that type |
 | `can_create` | INTEGER | 0/1 boolean |
 | `can_read` | INTEGER | 0/1 boolean |
 | `can_update` | INTEGER | 0/1 boolean |
 | `can_delete` | INTEGER | 0/1 boolean |
 
-**Indexes:** `idx_rights_principal` on `(principal_type, principal_id)`, `idx_rights_tenant` on `(tenant_id)`
+**Indexes:** `idx_rights_principal` on `(principal_type, principal_id)`
 
-**Design rationale:** The `resource_id = '*'` wildcard allows a single row to grant access to all resources of a type (e.g. "this user can read all projects in this tenant") without enumerating every resource. The four separate boolean columns make it straightforward to grant asymmetric rights (e.g. read-only access) without a bitmask. Permission levels are hierarchical: Delete implies Update implies Create implies Read — the UI enforces this by exposing a single level selector rather than independent checkboxes. Admin and superadmin users bypass the rights table entirely; rights are only evaluated for `user`-type principals.
+**Design rationale:** The `resource_id = '*'` wildcard allows a single row to grant access to all resources of a type (e.g. "this user can read all projects") without enumerating every resource. The four separate boolean columns make it straightforward to grant asymmetric rights (e.g. read-only access) without a bitmask. Permission levels are hierarchical: Delete implies Update implies Create implies Read — the UI enforces this by exposing a single level selector rather than independent checkboxes. Admin users bypass the rights table entirely; rights are only evaluated for `user`-type principals.
 
 ---
 
@@ -488,17 +434,19 @@ Two migration sets are embedded in the binary — one per driver:
 
 | Directory | Driver | File | Contents |
 |---|---|---|---|
-| `migrations/` | SQLite | `001_initial_schema.sql` | Core hierarchy: tenants, projects, buckets, documents, document_versions, document_tags, document_properties, audit_log |
+| `migrations/` | SQLite | `001_initial_schema.sql` | Core hierarchy: projects, buckets, documents, document_versions, document_tags, document_properties, audit_log |
 | `migrations/` | SQLite | `002_auth_schema.sql` | Authentication & authorisation: users, groups, group_members, api_keys, rights |
 | `migrations/` | SQLite | `003_cluster_nodes.sql` | Adds `cluster_nodes` table for heartbeat and leader election |
 | `migrations/` | SQLite | `004_superadmin_role.sql` | Extends `user_type` CHECK to include `'superadmin'` |
 | `migrations/` | SQLite | `005_user_names.sql` | Adds `first_name` and `last_name` columns to `users` |
-| `migrations/` | SQLite | `006_permission_system.sql` | Adds `perm_mode` to `tenants`; widens rights `principal_type` to include `'apikey'`; widens `resource_type` to include `'document'` and `'tenant'` |
+| `migrations/` | SQLite | `006_permission_system.sql` | Widens rights `principal_type` to include `'apikey'`; widens `resource_type` to include `'document'` |
+| `migrations/` | SQLite | `007_remove_tenants.sql` | Removes multi-tenancy: drops `tenants` table, `tenant_id` columns; downgrades `superadmin` → `admin`; adds `UNIQUE(name)` to projects, users, groups globally |
 | `migrations_pg/` | PostgreSQL | `001_initial_schema.sql` | Same as above; uses `TIMESTAMPTZ` instead of `DATETIME`, `BIGINT` for sizes |
 | `migrations_pg/` | PostgreSQL | `002_auth_schema.sql` | Same as above; uses `TIMESTAMPTZ` |
 | `migrations_pg/` | PostgreSQL | `003_cluster_nodes.sql` | Same as SQLite 003 |
 | `migrations_pg/` | PostgreSQL | `004_superadmin_role.sql` | Same as SQLite 004 |
 | `migrations_pg/` | PostgreSQL | `005_user_names.sql` | Same as SQLite 005 |
+| `migrations_pg/` | PostgreSQL | `006_remove_tenants.sql` | Same as SQLite 007; uses `ALTER TABLE DROP COLUMN` |
 
 Goose runs all pending migrations automatically on startup. Each migration file contains an `-- +goose Up` block (applied forward) and a `-- +goose Down` block (rollback). This means the schema can be rolled back to any point without manual SQL.
 
@@ -506,7 +454,7 @@ Goose runs all pending migrations automatically on startup. Each migration file 
 
 ## Soft-delete pattern
 
-The following tables use soft-delete: `tenants`, `projects`, `buckets`, `documents`, `users`, `groups`.
+The following tables use soft-delete: `projects`, `buckets`, `documents`, `users`, `groups`.
 
 A `deleted_at DATETIME` column is present on each. All application queries include a `WHERE deleted_at IS NULL` filter so soft-deleted records are invisible to normal operations. Records are retained so that:
 
@@ -524,8 +472,7 @@ Hard deletion (physically removing rows) is not exposed via the API and would re
 |---|---|
 | SQLite as default, PostgreSQL optional | SQLite gives zero-dependency single-binary deployment for the common case. PostgreSQL is available for deployments that need concurrent writers, replication, or managed-database integrations. Both share the same application code; a `db.DB` wrapper handles `?`→`$N` placeholder rebinding transparently. |
 | UUIDs as primary keys | Avoids sequential integer leakage, supports distributed ID generation without coordination, and is safe to expose in URLs. |
-| Denormalised `tenant_id` in `audit_log` | Preserves audit history even if a tenant is deleted; compliance requirement. |
-| No FK on `audit_log.tenant_id` | Intentional — a deleted tenant must not cascade-delete its audit records. |
+| `TINYDM_PERM_MODE` env var | Sets the system-wide RBAC default: `open` (authenticated users can read everything) or `explicit` (all access requires a `rights` grant). Defaults to `explicit`. |
 | SHA-256 storage keys | Content-addressed storage provides free deduplication and makes backup/replication simple. |
 | bcrypt for passwords, SHA-256 for API keys | bcrypt is appropriate for human-chosen secrets (slow, salted). API keys are long random strings so a single fast hash is sufficient and avoids per-request bcrypt overhead. |
 | `resource_id = '*'` wildcard in `rights` | Allows broad grants (e.g. "read all buckets") without enumerating every resource at grant time. |
