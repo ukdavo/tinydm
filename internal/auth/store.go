@@ -411,6 +411,7 @@ func (s *Store) UpsertRight(ctx context.Context, p UpsertRightParams) error {
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(principal_type, principal_id, resource_type, resource_id)
 		DO UPDATE SET
+		    tenant_id  = excluded.tenant_id,
 		    can_create = excluded.can_create,
 		    can_read   = excluded.can_read,
 		    can_update = excluded.can_update,
