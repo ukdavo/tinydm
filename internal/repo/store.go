@@ -476,6 +476,35 @@ func (s *Store) CountDocumentsInBucket(ctx context.Context, bucketID string) (in
 	return n, err
 }
 
+// CountBucketsInProject returns the number of non-deleted buckets in a project.
+func (s *Store) CountBucketsInProject(ctx context.Context, projectID string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM buckets WHERE project_id = ? AND deleted_at IS NULL`, projectID).Scan(&n)
+	return n, err
+}
+
+// CountDocumentsInProject returns the number of non-deleted documents across all
+// buckets in a project.
+func (s *Store) CountDocumentsInProject(ctx context.Context, projectID string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM documents d
+		JOIN buckets b ON d.bucket_id = b.id
+		WHERE b.project_id = ? AND d.deleted_at IS NULL`, projectID).Scan(&n)
+	return n, err
+}
+
+// SumDocumentSizeInBucket returns the total byte size of all non-deleted documents
+// in a bucket. Returns 0 for an empty bucket.
+func (s *Store) SumDocumentSizeInBucket(ctx context.Context, bucketID string) (int64, error) {
+	var total int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(size), 0) FROM documents WHERE bucket_id = ? AND deleted_at IS NULL`,
+		bucketID).Scan(&total)
+	return total, err
+}
+
 // ─── Counts (used by the admin dashboard) ────────────────────────────────────
 
 // CountTenants returns the number of non-deleted tenants.
