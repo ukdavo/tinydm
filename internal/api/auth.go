@@ -21,7 +21,6 @@ func NewAuthHandler(cfg *config.Config, store *auth.Store) *AuthHandler {
 // ─── POST /api/v1/auth/login ──────────────────────────────────────────────────
 
 type loginRequest struct {
-	TenantID string `json:"tenant_id"`
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
@@ -31,7 +30,6 @@ type loginResponse struct {
 	UserID   string `json:"user_id"`
 	Username string `json:"username"`
 	UserType string `json:"user_type"`
-	TenantID string `json:"tenant_id"`
 }
 
 // Login handles POST /api/v1/auth/login.
@@ -42,12 +40,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.TenantID == "" || req.Username == "" || req.Password == "" {
-		writeError(w, http.StatusBadRequest, "tenant_id, username and password are required")
+	if req.Username == "" || req.Password == "" {
+		writeError(w, http.StatusBadRequest, "username and password are required")
 		return
 	}
 
-	user, err := h.store.GetUserByUsername(r.Context(), req.TenantID, req.Username)
+	user, err := h.store.GetUserByUsername(r.Context(), req.Username)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -67,7 +65,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		h.cfg.JWTSecret,
 		h.cfg.JWTExpiryMinutes,
 		user.ID,
-		user.TenantID,
 		user.Username,
 		user.UserType,
 	)
@@ -81,7 +78,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		UserID:   user.ID,
 		Username: user.Username,
 		UserType: string(user.UserType),
-		TenantID: user.TenantID,
 	})
 }
 
@@ -91,7 +87,6 @@ type meResponse struct {
 	UserID     string `json:"user_id"`
 	Username   string `json:"username"`
 	UserType   string `json:"user_type"`
-	TenantID   string `json:"tenant_id"`
 	AuthMethod string `json:"auth_method"`
 }
 
@@ -106,7 +101,6 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		UserID:     p.ID,
 		Username:   p.Username,
 		UserType:   string(p.UserType),
-		TenantID:   p.TenantID,
 		AuthMethod: string(p.AuthMethod),
 	})
 }
