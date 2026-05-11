@@ -3,144 +3,184 @@ package auth
 import "testing"
 
 func adminPrincipal() Principal {
-	return Principal{
-		ID:       "admin-1",
-		TenantID: "tenant-1",
-		Username: "admin",
-		UserType: UserTypeAdmin,
-	}
+	return Principal{ID: "admin-1", TenantID: "tenant-1", Username: "admin", UserType: UserTypeAdmin}
+}
+
+func superPrincipal() Principal {
+	return Principal{ID: "super-1", TenantID: "tenant-1", Username: "super", UserType: UserTypeSuperAdmin}
 }
 
 func userPrincipal() Principal {
-	return Principal{
-		ID:       "user-1",
-		TenantID: "tenant-1",
-		Username: "alice",
-		UserType: UserTypeUser,
-	}
+	return Principal{ID: "user-1", TenantID: "tenant-1", Username: "alice", UserType: UserTypeUser}
 }
 
+// ─── Admin bypass ─────────────────────────────────────────────────────────────
+
 func TestCan_AdminAlwaysPermitted(t *testing.T) {
-	p := adminPrincipal()
-	actions := []Action{ActionCreate, ActionRead, ActionUpdate, ActionDelete}
-	for _, action := range actions {
-		if !Can(p, nil, action, ResourceProject, "proj-123") {
+	for _, action := range []Action{ActionCreate, ActionRead, ActionUpdate, ActionDelete} {
+		if !Can(adminPrincipal(), nil, PermModeExplicit, action, ResourceProject, "proj-1") {
 			t.Errorf("admin should always be permitted for action %q", action)
 		}
 	}
 }
 
+func TestCan_SuperAdminAlwaysPermitted(t *testing.T) {
+	if !Can(superPrincipal(), nil, PermModeExplicit, ActionDelete, ResourceBucket, "b-1") {
+		t.Error("superadmin should always be permitted")
+	}
+}
+
 func TestCan_AdminWithNoRights(t *testing.T) {
-	// Admin should be permitted even with an empty rights slice.
-	if !Can(adminPrincipal(), []Right{}, ActionDelete, ResourceBucket, "bucket-xyz") {
+	if !Can(adminPrincipal(), []Right{}, PermModeExplicit, ActionDelete, ResourceBucket, "b-xyz") {
 		t.Error("admin with empty rights should still be permitted")
 	}
 }
 
-func TestCan_UserWithMatchingRight(t *testing.T) {
-	p := userPrincipal()
-	rights := []Right{
-		{
-			ResourceType: string(ResourceProject),
-			ResourceID:   "proj-123",
-			CanRead:      true,
-		},
-	}
+// ─── Explicit mode ────────────────────────────────────────────────────────────
 
-	if !Can(p, rights, ActionRead, ResourceProject, "proj-123") {
-		t.Error("user should be permitted to read the specific project")
+func TestCan_Explicit_ExactMatch(t *testing.T) {
+	p := userPrincipal()
+	rights := []Right{{ResourceType: "project", ResourceID: "proj-1", CanRead: true}}
+	if !Can(p, rights, PermModeExplicit, ActionRead, ResourceProject, "proj-1") {
+		t.Error("exact match should be permitted in explicit mode")
 	}
 }
 
-func TestCan_UserWildcardResource(t *testing.T) {
+func TestCan_Explicit_WildcardMatch(t *testing.T) {
 	p := userPrincipal()
-	rights := []Right{
-		{
-			ResourceType: string(ResourceBucket),
-			ResourceID:   "*",
-			CanRead:      true,
-			CanCreate:    true,
-		},
+	rights := []Right{{ResourceType: "bucket", ResourceID: "*", CanRead: true, CanCreate: true}}
+	if !Can(p, rights, PermModeExplicit, ActionRead, ResourceBucket, "any-bucket") {
+		t.Error("wildcard should grant read in explicit mode")
 	}
-
-	if !Can(p, rights, ActionRead, ResourceBucket, "any-bucket-id") {
-		t.Error("wildcard right should grant read on any bucket")
-	}
-	if !Can(p, rights, ActionCreate, ResourceBucket, "another-bucket") {
-		t.Error("wildcard right should grant create on any bucket")
+	if !Can(p, rights, PermModeExplicit, ActionCreate, ResourceBucket, "another-bucket") {
+		t.Error("wildcard should grant create in explicit mode")
 	}
 }
 
-func TestCan_UserNoMatchingRight(t *testing.T) {
+func TestCan_Explicit_NoMatch_Denied(t *testing.T) {
 	p := userPrincipal()
-	rights := []Right{
-		{
-			ResourceType: string(ResourceProject),
-			ResourceID:   "proj-123",
-			CanRead:      true,
-		},
-	}
-
+	rights := []Right{{ResourceType: "project", ResourceID: "proj-1", CanRead: true}}
 	// Wrong resource ID.
-	if Can(p, rights, ActionRead, ResourceProject, "proj-999") {
-		t.Error("user should not be permitted for a different resource ID")
+	if Can(p, rights, PermModeExplicit, ActionRead, ResourceProject, "proj-999") {
+		t.Error("wrong resource ID should be denied")
 	}
-	// Right ID but wrong action (CanDelete not set).
-	if Can(p, rights, ActionDelete, ResourceProject, "proj-123") {
-		t.Error("user should not be permitted for action not in rights")
+	// Wrong action.
+	if Can(p, rights, PermModeExplicit, ActionDelete, ResourceProject, "proj-1") {
+		t.Error("action not in rights should be denied")
 	}
-	// Right action but wrong resource type.
-	if Can(p, rights, ActionRead, ResourceBucket, "proj-123") {
-		t.Error("user should not be permitted when resource type does not match")
+	// Wrong resource type.
+	if Can(p, rights, PermModeExplicit, ActionRead, ResourceBucket, "proj-1") {
+		t.Error("wrong resource type should be denied")
 	}
 }
 
-func TestCan_UserEmptyRights(t *testing.T) {
-	p := userPrincipal()
-	if Can(p, []Right{}, ActionRead, ResourceProject, "proj-1") {
-		t.Error("user with no rights should not be permitted")
+func TestCan_Explicit_EmptyRights_Denied(t *testing.T) {
+	if Can(userPrincipal(), []Right{}, PermModeExplicit, ActionRead, ResourceProject, "proj-1") {
+		t.Error("empty rights in explicit mode should deny")
 	}
 }
+
+func TestCan_Explicit_NoAncestorFallback(t *testing.T) {
+	p := userPrincipal()
+	// Grant on project — should NOT grant bucket access in explicit mode.
+	rights := []Right{{ResourceType: "project", ResourceID: "proj-1", CanRead: true}}
+	ancestor := ResourceAncestor{Type: ResourceProject, ID: "proj-1"}
+	if Can(p, rights, PermModeExplicit, ActionRead, ResourceBucket, "bucket-1", ancestor) {
+		t.Error("explicit mode should not fall back to ancestor grants")
+	}
+}
+
+func TestCan_Explicit_WildcardDoesNotCrossResourceType(t *testing.T) {
+	p := userPrincipal()
+	rights := []Right{{ResourceType: "project", ResourceID: "*", CanRead: true}}
+	if Can(p, rights, PermModeExplicit, ActionRead, ResourceBucket, "any-bucket") {
+		t.Error("wildcard on projects should not grant bucket access")
+	}
+}
+
+// ─── Inherit mode ─────────────────────────────────────────────────────────────
+
+func TestCan_Inherit_AncestorGrantAllowed(t *testing.T) {
+	p := userPrincipal()
+	// Grant on project — should cascade to bucket in inherit mode.
+	rights := []Right{{ResourceType: "project", ResourceID: "proj-1", CanRead: true}}
+	ancestor := ResourceAncestor{Type: ResourceProject, ID: "proj-1"}
+	if !Can(p, rights, PermModeInherit, ActionRead, ResourceBucket, "bucket-1", ancestor) {
+		t.Error("inherit mode should fall back to ancestor grant")
+	}
+}
+
+func TestCan_Inherit_SpecificOverridesAncestor(t *testing.T) {
+	p := userPrincipal()
+	rights := []Right{
+		{ResourceType: "project", ResourceID: "proj-1", CanRead: true, CanDelete: true},
+		{ResourceType: "bucket", ResourceID: "bucket-1", CanRead: true}, // no CanDelete
+	}
+	ancestor := ResourceAncestor{Type: ResourceProject, ID: "proj-1"}
+	// Read is granted at bucket level — allowed.
+	if !Can(p, rights, PermModeInherit, ActionRead, ResourceBucket, "bucket-1", ancestor) {
+		t.Error("bucket-level read should be permitted")
+	}
+	// Delete is NOT in bucket right (even though it's in project) — denied because
+	// bucket-level right exists and doesn't grant delete.
+	if Can(p, rights, PermModeInherit, ActionDelete, ResourceBucket, "bucket-1", ancestor) {
+		t.Error("delete should be denied when bucket right exists but doesn't grant delete")
+	}
+}
+
+func TestCan_Inherit_NoGrantAnywhere_Denied(t *testing.T) {
+	p := userPrincipal()
+	rights := []Right{{ResourceType: "project", ResourceID: "proj-2", CanRead: true}}
+	ancestor := ResourceAncestor{Type: ResourceProject, ID: "proj-1"} // different project
+	if Can(p, rights, PermModeInherit, ActionRead, ResourceBucket, "bucket-1", ancestor) {
+		t.Error("no grant anywhere should deny in inherit mode")
+	}
+}
+
+// ─── Open mode ────────────────────────────────────────────────────────────────
+
+func TestCan_Open_NoRightExists_Allowed(t *testing.T) {
+	p := userPrincipal()
+	// No rights at all — open mode defaults to allowed.
+	if !Can(p, []Right{}, PermModeOpen, ActionRead, ResourceProject, "proj-1") {
+		t.Error("open mode with no rights should allow by default")
+	}
+}
+
+func TestCan_Open_RightExistsAndGrantsAction_Allowed(t *testing.T) {
+	p := userPrincipal()
+	rights := []Right{{ResourceType: "project", ResourceID: "proj-1", CanRead: true}}
+	if !Can(p, rights, PermModeOpen, ActionRead, ResourceProject, "proj-1") {
+		t.Error("open mode with explicit grant should allow")
+	}
+}
+
+func TestCan_Open_RightExistsButNotAction_Denied(t *testing.T) {
+	p := userPrincipal()
+	// Right exists for proj-1 but only grants read, not delete.
+	rights := []Right{{ResourceType: "project", ResourceID: "proj-1", CanRead: true}}
+	if Can(p, rights, PermModeOpen, ActionDelete, ResourceProject, "proj-1") {
+		t.Error("open mode: right exists for resource but action not granted — should deny")
+	}
+}
+
+func TestCan_Open_UnrelatedRightDoesNotRestrict(t *testing.T) {
+	p := userPrincipal()
+	// Right exists for proj-2 — proj-1 has no right, so open mode allows proj-1.
+	rights := []Right{{ResourceType: "project", ResourceID: "proj-2", CanRead: true}}
+	if !Can(p, rights, PermModeOpen, ActionDelete, ResourceProject, "proj-1") {
+		t.Error("open mode: unrelated right should not restrict access to other resource")
+	}
+}
+
+// ─── All actions ──────────────────────────────────────────────────────────────
 
 func TestCan_AllActions(t *testing.T) {
 	p := userPrincipal()
-	rights := []Right{
-		{
-			ResourceType: string(ResourceTenant),
-			ResourceID:   "tenant-1",
-			CanCreate:    true,
-			CanRead:      true,
-			CanUpdate:    true,
-			CanDelete:    true,
-		},
-	}
-
-	tests := []struct {
-		action Action
-	}{
-		{ActionCreate},
-		{ActionRead},
-		{ActionUpdate},
-		{ActionDelete},
-	}
-	for _, tc := range tests {
-		if !Can(p, rights, tc.action, ResourceTenant, "tenant-1") {
-			t.Errorf("user should be permitted for action %q with full rights", tc.action)
+	rights := []Right{{ResourceType: "tenant", ResourceID: "tenant-1", CanCreate: true, CanRead: true, CanUpdate: true, CanDelete: true}}
+	for _, action := range []Action{ActionCreate, ActionRead, ActionUpdate, ActionDelete} {
+		if !Can(p, rights, PermModeExplicit, action, ResourceTenant, "tenant-1") {
+			t.Errorf("full rights should permit action %q", action)
 		}
-	}
-}
-
-func TestCan_WildcardDoesNotOverrideResourceType(t *testing.T) {
-	p := userPrincipal()
-	// Wildcard on project resources — should NOT grant bucket access.
-	rights := []Right{
-		{
-			ResourceType: string(ResourceProject),
-			ResourceID:   "*",
-			CanRead:      true,
-		},
-	}
-	if Can(p, rights, ActionRead, ResourceBucket, "any-bucket") {
-		t.Error("wildcard on projects should not grant access to buckets")
 	}
 }
