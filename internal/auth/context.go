@@ -1,4 +1,3 @@
-// Package auth handles authentication, authorisation, and principal management.
 package auth
 
 import "context"
@@ -7,18 +6,13 @@ type contextKey string
 
 const principalKey contextKey = "principal"
 
-// UserType distinguishes the three tiers of access.
+// UserType distinguishes the two access tiers.
 type UserType string
 
 const (
-	// UserTypeSuperAdmin can create and manage domains (tenants). There is
-	// exactly one superadmin created at bootstrap; it is not scoped to any
-	// tenant and has unrestricted access to the entire deployment.
-	UserTypeSuperAdmin UserType = "superadmin"
-	// UserTypeAdmin (domain admin) has full control within a single tenant.
-	// One admin is automatically created when a new tenant is provisioned.
+	// UserTypeAdmin has full control of the entire deployment.
 	UserTypeAdmin UserType = "admin"
-	// UserTypeUser can manage documents within their tenant.
+	// UserTypeUser can manage documents within their rights.
 	UserTypeUser UserType = "user"
 )
 
@@ -34,23 +28,14 @@ const (
 // Principal represents an authenticated caller attached to a request context.
 type Principal struct {
 	ID         string
-	TenantID   string
 	Username   string
 	UserType   UserType
 	AuthMethod AuthMethod
 }
 
-// IsSuperAdmin reports whether the principal is the global superadmin.
-// Superadmins are not scoped to a single tenant and can manage all domains.
-func (p Principal) IsSuperAdmin() bool {
-	return p.UserType == UserTypeSuperAdmin
-}
-
-// IsAdmin reports whether the principal has administrator rights within their
-// tenant. Both domain admins and superadmins satisfy this check — superadmin
-// is a strict superset of admin.
+// IsAdmin reports whether the principal has administrator rights.
 func (p Principal) IsAdmin() bool {
-	return p.UserType == UserTypeAdmin || p.UserType == UserTypeSuperAdmin
+	return p.UserType == UserTypeAdmin
 }
 
 // WithPrincipal returns a new context carrying p.

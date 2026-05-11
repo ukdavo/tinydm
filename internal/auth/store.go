@@ -64,13 +64,13 @@ func NewStore(database *db.DB) *Store {
 
 // ─── Users ────────────────────────────────────────────────────────────────────
 
-// GetUserByUsername fetches an active user by tenant + username.
-func (s *Store) GetUserByUsername(ctx context.Context, tenantID, username string) (*User, error) {
+// GetUserByUsername fetches an active user by username.
+func (s *Store) GetUserByUsername(ctx context.Context, username string) (*User, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, tenant_id, username, email, first_name, last_name, password_hash, user_type, is_active
 		FROM users
-		WHERE tenant_id = ? AND username = ? AND deleted_at IS NULL`,
-		tenantID, username,
+		WHERE username = ? AND deleted_at IS NULL`,
+		username,
 	)
 	return scanUser(row)
 }
@@ -197,7 +197,7 @@ func (s *Store) SetUserActive(ctx context.Context, id string, active bool) error
 		if err != nil {
 			return fmt.Errorf("set active: %w", err)
 		}
-		if u != nil && (u.UserType == UserTypeSuperAdmin || u.UserType == UserTypeAdmin) {
+		if u != nil && u.UserType == UserTypeAdmin {
 			return fmt.Errorf("%s accounts cannot be deactivated", u.UserType)
 		}
 	}
@@ -212,14 +212,14 @@ func (s *Store) SetUserActive(ctx context.Context, id string, active bool) error
 	return err
 }
 
-// DeleteUser soft-deletes a user by ID. Superadmin accounts cannot be deleted.
+// DeleteUser soft-deletes a user by ID. Admin accounts cannot be deleted.
 func (s *Store) DeleteUser(ctx context.Context, id string) error {
 	u, err := s.GetUserByID(ctx, id)
 	if err != nil {
 		return fmt.Errorf("delete user: %w", err)
 	}
-	if u != nil && u.UserType == UserTypeSuperAdmin {
-		return fmt.Errorf("superadmin account cannot be deleted")
+	if u != nil && u.UserType == UserTypeAdmin {
+		return fmt.Errorf("admin account cannot be deleted")
 	}
 	_, err = s.db.ExecContext(ctx,
 		`UPDATE users SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`,
@@ -588,18 +588,12 @@ func (s *Store) EnsureAdminUser(ctx context.Context, tenantID, tenantName, usern
 		return "", fmt.Errorf("hash bootstrap password: %w", err)
 	}
 
-	// The bootstrap user is a superadmin, not a plain domain admin.
-	if _, err := s.CreateUser(ctx, tenantID, username, email, "Super", "Admin", hash, UserTypeSuperAdmin); err != nil {
-		return "", fmt.Errorf("create bootstrap superadmin: %w", err)
+	// The bootstrap user is an admin.
+	if _, err := s.CreateUser(ctx, tenantID, username, email, "", "Admin", hash, UserTypeAdmin); err != nil {
+		return "", fmt.Errorf("create bootstrap admin: %w", err)
 	}
 
-	// Also provision a domain admin for the bootstrap tenant so the default
-	// domain has a scoped admin account from day one.
-	_, domainAdminPass, err := s.CreateDomainAdmin(ctx, tenantID)
-	if err != nil {
-		return "", fmt.Errorf("create bootstrap domain admin: %w", err)
-	}
-	return domainAdminPass, nil
+	return password, nil
 }
 
 // CreateDomainAdmin creates a domain admin user for the given tenant and

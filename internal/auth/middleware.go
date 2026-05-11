@@ -45,28 +45,7 @@ func RequireAuth(next http.Handler) http.Handler {
 	})
 }
 
-// RequireSuperAdmin rejects any principal that is not a superadmin (HTTP 403).
-// Use this on routes that manage tenants/domains — operations that must be
-// restricted to the global superadmin account.
-func RequireSuperAdmin(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p, ok := PrincipalFromContext(r.Context())
-		if !ok {
-			w.Header().Set("Content-Type", "application/json")
-			http.Error(w, `{"error":"authentication required"}`, http.StatusUnauthorized)
-			return
-		}
-		if !p.IsSuperAdmin() {
-			w.Header().Set("Content-Type", "application/json")
-			http.Error(w, `{"error":"superadmin access required"}`, http.StatusForbidden)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 // RequireAdmin rejects non-admin principals with HTTP 403.
-// Both domain admins and superadmins satisfy this check.
 func RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p, ok := PrincipalFromContext(r.Context())
@@ -96,8 +75,7 @@ func identify(r *http.Request, secret string, store *Store) (*Principal, error) 
 
 	// 2. Basic auth
 	if strings.HasPrefix(authHeader, "Basic ") {
-		tenantID := r.Header.Get("X-Tenant-ID")
-		return verifyBasic(r.Context(), strings.TrimPrefix(authHeader, "Basic "), tenantID, store)
+		return verifyBasic(r.Context(), strings.TrimPrefix(authHeader, "Basic "), store)
 	}
 
 	// 3. API key
@@ -115,17 +93,13 @@ func verifyJWT(_ context.Context, secret, tokenStr string) (*Principal, error) {
 	}
 	return &Principal{
 		ID:         claims.Subject,
-		TenantID:   claims.TenantID,
 		Username:   claims.Username,
 		UserType:   UserType(claims.UserType),
 		AuthMethod: AuthMethodBearer,
 	}, nil
 }
 
-func verifyBasic(ctx context.Context, encoded, tenantID string, store *Store) (*Principal, error) {
-	if tenantID == "" {
-		return nil, fmt.Errorf("basic: X-Tenant-ID header required")
-	}
+func verifyBasic(ctx context.Context, encoded string, store *Store) (*Principal, error) {
 	b, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		return nil, fmt.Errorf("basic: decode: %w", err)
@@ -136,7 +110,7 @@ func verifyBasic(ctx context.Context, encoded, tenantID string, store *Store) (*
 	}
 	username, password := parts[0], parts[1]
 
-	user, err := store.GetUserByUsername(ctx, tenantID, username)
+	user, err := store.GetUserByUsername(ctx, username)
 	if err != nil {
 		return nil, fmt.Errorf("basic: lookup user: %w", err)
 	}
@@ -148,7 +122,6 @@ func verifyBasic(ctx context.Context, encoded, tenantID string, store *Store) (*
 	}
 	return &Principal{
 		ID:         user.ID,
-		TenantID:   user.TenantID,
 		Username:   user.Username,
 		UserType:   user.UserType,
 		AuthMethod: AuthMethodBasic,
@@ -181,7 +154,6 @@ func verifyAPIKey(ctx context.Context, key string, store *Store) (*Principal, er
 		if err == nil && user != nil && user.IsActive {
 			return &Principal{
 				ID:         user.ID,
-				TenantID:   user.TenantID,
 				Username:   user.Username,
 				UserType:   user.UserType,
 				AuthMethod: AuthMethodAPIKey,
@@ -189,10 +161,9 @@ func verifyAPIKey(ctx context.Context, key string, store *Store) (*Principal, er
 		}
 	}
 
-	// Tenant-scoped key (no user) → treated as a tenant admin.
+	// Key with no user → treated as admin.
 	return &Principal{
 		ID:         apiKey.ID,
-		TenantID:   apiKey.TenantID,
 		Username:   apiKey.Name,
 		UserType:   UserTypeAdmin,
 		AuthMethod: AuthMethodAPIKey,
