@@ -167,6 +167,19 @@ func RegisterRoutes(r chi.Router, h *Handler) {
 		r.Post("/admin/tenants/{tenantID}/apikeys", h.createTenantAPIKey)
 		r.Post("/admin/tenants/{tenantID}/apikeys/{keyID}/revoke", h.revokeTenantAPIKey)
 
+		// Rights management — users
+			r.Get("/admin/tenants/{tenantID}/users/{userID}/rights", h.userRightsPanel)
+			r.Post("/admin/tenants/{tenantID}/users/{userID}/rights", h.addUserRight)
+			r.Delete("/admin/tenants/{tenantID}/users/{userID}/rights", h.removeUserRight)
+
+			// Rights management — API keys
+			r.Get("/admin/tenants/{tenantID}/apikeys/{keyID}/rights", h.apiKeyRightsPanel)
+			r.Post("/admin/tenants/{tenantID}/apikeys/{keyID}/rights", h.addAPIKeyRight)
+			r.Delete("/admin/tenants/{tenantID}/apikeys/{keyID}/rights", h.removeAPIKeyRight)
+
+			// Tenant permission mode
+			r.Post("/admin/tenants/{tenantID}/settings/permmode", h.setPermMode)
+
 		// Audit log — scoped to tenant
 		r.Get("/admin/tenants/{tenantID}/audit", h.auditLog)
 		r.Get("/admin/tenants/{tenantID}/audit/events", h.auditEvents) // HTMX partial

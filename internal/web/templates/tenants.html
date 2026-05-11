@@ -77,3 +77,24 @@
   </td>
 </tr>
 {{end}}
+
+{{define "tenant-perm-mode-card"}}
+<div class="card" style="margin-bottom:16px;">
+  <div style="padding:14px 16px;border-bottom:1px solid var(--border);">
+    <strong>Access policy</strong>
+  </div>
+  <div style="padding:14px 16px;display:flex;align-items:center;gap:12px;">
+    <label style="font-size:13px;font-weight:500;">Default permission mode</label>
+    <select name="perm_mode" id="perm-mode-{{.ID}}"
+      hx-post="/admin/tenants/{{.ID}}/settings/permmode"
+      hx-include="#perm-mode-{{.ID}}"
+      hx-target="#perm-mode-save-{{.ID}}"
+      hx-swap="innerHTML">
+      <option value="explicit" {{if eq .PermMode "explicit"}}selected{{end}}>explicit — grants required</option>
+      <option value="open"     {{if eq .PermMode "open"}}selected{{end}}>open — access unless restricted</option>
+      <option value="inherit"  {{if eq .PermMode "inherit"}}selected{{end}}>inherit — grants cascade from parent</option>
+    </select>
+    <span id="perm-mode-save-{{.ID}}"></span>
+  </div>
+</div>
+{{end}}

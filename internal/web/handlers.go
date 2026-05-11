@@ -601,9 +601,13 @@ func (h *Handler) downloadDocument(w http.ResponseWriter, r *http.Request) {
 
 type usersData struct {
 	basePage
-	Tenant *repo.Tenant
-	Users  []*auth.User
-	Pager  WebPagination
+	Tenant        *repo.Tenant
+	Users         []*auth.User
+	Pager         WebPagination
+	PermModeTenant struct {
+		ID       string
+		PermMode string
+	}
 }
 
 // tenantUsers renders GET /admin/tenants/{tenantID}/users
@@ -616,12 +620,16 @@ func (h *Handler) tenantUsers(w http.ResponseWriter, r *http.Request) {
 	}
 	page, limit := parsePage(r)
 	users, total, _ := h.auth.ListUsers(r.Context(), tenantID, limit, pageOffset(page, limit))
-	h.render(w, "users", usersData{
+	mode, _ := h.auth.GetTenantPermMode(r.Context(), tenantID)
+	data := usersData{
 		basePage: h.base(r, "users"),
 		Tenant:   tenant,
 		Users:    users,
 		Pager:    newWebPagination(total, page, limit, ""),
-	})
+	}
+	data.PermModeTenant.ID = tenantID
+	data.PermModeTenant.PermMode = string(mode)
+	h.render(w, "users", data)
 }
 
 // createTenantUser handles POST /admin/tenants/{tenantID}/users
@@ -1325,4 +1333,230 @@ func formatSize(bytes int64) string {
 	default:
 		return fmt.Sprintf("%d B", bytes)
 	}
+}
+
+// ── Rights page data ──────────────────────────────────────────────────────────
+
+// WebRight wraps auth.Right with a display name for the resource.
+type WebRight struct {
+	auth.Right
+	ResourceName string
+}
+
+type userRightsPage struct {
+	basePage
+	Tenant *repo.Tenant
+	User   *auth.User
+	Rights []auth.Right
+}
+
+type apiKeyRightsPage struct {
+	basePage
+	Tenant *repo.Tenant
+	Key    *auth.APIKey
+	Rights []auth.Right
+}
+
+// ── User rights handlers ──────────────────────────────────────────────────────
+
+func (h *Handler) userRightsPanel(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	userID := chi.URLParam(r, "userID")
+
+	tenant, err := h.repo.GetTenant(r.Context(), tenantID)
+	if err != nil || tenant == nil {
+		http.NotFound(w, r)
+		return
+	}
+	user, err := h.auth.GetUserByID(r.Context(), userID)
+	if err != nil || user == nil || user.TenantID != tenantID {
+		http.NotFound(w, r)
+		return
+	}
+	rights, err := h.auth.ListRights(r.Context(), tenantID, "user", userID)
+	if err != nil {
+		rights = nil
+	}
+
+	data := userRightsPage{
+		basePage: h.base(r, "users"),
+		Tenant:   tenant,
+		User:     user,
+		Rights:   rights,
+	}
+	h.renderPartial(w, "users", "user-rights-panel", data)
+}
+
+func (h *Handler) addUserRight(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	userID := chi.URLParam(r, "userID")
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	params := auth.UpsertRightParams{
+		TenantID:      tenantID,
+		PrincipalType: "user",
+		PrincipalID:   userID,
+		ResourceType:  r.FormValue("resource_type"),
+		ResourceID:    r.FormValue("resource_id"),
+		CanCreate:     r.FormValue("can_create") == "on",
+		CanRead:       r.FormValue("can_read") == "on",
+		CanUpdate:     r.FormValue("can_update") == "on",
+		CanDelete:     r.FormValue("can_delete") == "on",
+	}
+	if params.ResourceID == "" {
+		params.ResourceID = "*"
+	}
+
+	if err := h.auth.UpsertRight(r.Context(), params); err != nil {
+		http.Error(w, "failed to add right", http.StatusInternalServerError)
+		return
+	}
+
+	// Re-render the panel partial.
+	rights, _ := h.auth.ListRights(r.Context(), tenantID, "user", userID)
+	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
+	user, _ := h.auth.GetUserByID(r.Context(), userID)
+	data := userRightsPage{basePage: h.base(r, "users"), Tenant: tenant, User: user, Rights: rights}
+	h.renderPartial(w, "users", "user-rights-panel", data)
+}
+
+func (h *Handler) removeUserRight(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	userID := chi.URLParam(r, "userID")
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	resourceType := r.FormValue("resource_type")
+	resourceID := r.FormValue("resource_id")
+
+	_ = h.auth.DeleteRight(r.Context(), tenantID, "user", userID, resourceType, resourceID)
+
+	rights, _ := h.auth.ListRights(r.Context(), tenantID, "user", userID)
+	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
+	user, _ := h.auth.GetUserByID(r.Context(), userID)
+	data := userRightsPage{basePage: h.base(r, "users"), Tenant: tenant, User: user, Rights: rights}
+	h.renderPartial(w, "users", "user-rights-panel", data)
+}
+
+// ── API key rights handlers ───────────────────────────────────────────────────
+
+func (h *Handler) apiKeyRightsPanel(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	keyID := chi.URLParam(r, "keyID")
+
+	tenant, err := h.repo.GetTenant(r.Context(), tenantID)
+	if err != nil || tenant == nil {
+		http.NotFound(w, r)
+		return
+	}
+	keys, _, err := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	var key *auth.APIKey
+	for _, k := range keys {
+		if k.ID == keyID {
+			key = k
+			break
+		}
+	}
+	if key == nil {
+		http.NotFound(w, r)
+		return
+	}
+	rights, _ := h.auth.GetAPIKeyRights(r.Context(), tenantID, keyID)
+	data := apiKeyRightsPage{basePage: h.base(r, "apikeys"), Tenant: tenant, Key: key, Rights: rights}
+	h.renderPartial(w, "apikeys", "apikey-rights-panel", data)
+}
+
+func (h *Handler) addAPIKeyRight(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	keyID := chi.URLParam(r, "keyID")
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	params := auth.UpsertRightParams{
+		TenantID:      tenantID,
+		PrincipalType: "apikey",
+		PrincipalID:   keyID,
+		ResourceType:  r.FormValue("resource_type"),
+		ResourceID:    r.FormValue("resource_id"),
+		CanCreate:     r.FormValue("can_create") == "on",
+		CanRead:       r.FormValue("can_read") == "on",
+		CanUpdate:     r.FormValue("can_update") == "on",
+		CanDelete:     r.FormValue("can_delete") == "on",
+	}
+	if params.ResourceID == "" {
+		params.ResourceID = "*"
+	}
+	_ = h.auth.UpsertRight(r.Context(), params)
+
+	rights, _ := h.auth.GetAPIKeyRights(r.Context(), tenantID, keyID)
+	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+	var key *auth.APIKey
+	for _, k := range keys {
+		if k.ID == keyID {
+			key = k
+			break
+		}
+	}
+	data := apiKeyRightsPage{basePage: h.base(r, "apikeys"), Tenant: tenant, Key: key, Rights: rights}
+	h.renderPartial(w, "apikeys", "apikey-rights-panel", data)
+}
+
+func (h *Handler) removeAPIKeyRight(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	keyID := chi.URLParam(r, "keyID")
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	_ = h.auth.DeleteRight(r.Context(), tenantID, "apikey", keyID,
+		r.FormValue("resource_type"), r.FormValue("resource_id"))
+
+	rights, _ := h.auth.GetAPIKeyRights(r.Context(), tenantID, keyID)
+	tenant, _ := h.repo.GetTenant(r.Context(), tenantID)
+	keys, _, _ := h.auth.ListAPIKeys(r.Context(), tenantID, 500, 0)
+	var key *auth.APIKey
+	for _, k := range keys {
+		if k.ID == keyID {
+			key = k
+			break
+		}
+	}
+	data := apiKeyRightsPage{basePage: h.base(r, "apikeys"), Tenant: tenant, Key: key, Rights: rights}
+	h.renderPartial(w, "apikeys", "apikey-rights-panel", data)
+}
+
+// ── Perm mode handler ─────────────────────────────────────────────────────────
+
+func (h *Handler) setPermMode(w http.ResponseWriter, r *http.Request) {
+	tenantID := chi.URLParam(r, "tenantID")
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	mode := auth.PermMode(r.FormValue("perm_mode"))
+	if mode != auth.PermModeExplicit && mode != auth.PermModeOpen && mode != auth.PermModeInherit {
+		http.Error(w, "invalid perm_mode", http.StatusBadRequest)
+		return
+	}
+	if err := h.auth.SetTenantPermMode(r.Context(), tenantID, mode); err != nil {
+		http.Error(w, "failed to update permission mode", http.StatusInternalServerError)
+		return
+	}
+	// Return a small success partial that replaces just the select element label.
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<span class="badge badge-green">Saved</span>`)
 }
