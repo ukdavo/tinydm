@@ -134,12 +134,12 @@ func (h *Handler) loginSubmit(w http.ResponseWriter, r *http.Request) {
 		Secure:   h.cfg.SecureCookies,
 		MaxAge:   h.cfg.JWTExpiryMinutes * 60,
 	})
-	http.Redirect(w, r, "/admin/", http.StatusFound)
+	http.Redirect(w, r, "/app/", http.StatusFound)
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, clearCookie())
-	http.Redirect(w, r, "/admin/login", http.StatusFound)
+	http.Redirect(w, r, "/app/login", http.StatusFound)
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
