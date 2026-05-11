@@ -19,11 +19,10 @@ func NewProjectHandler(store *repo.Store, authStore *auth.Store) *ProjectHandler
 	return &ProjectHandler{store: store, authStore: authStore}
 }
 
-// List handles GET /api/v1/tenants/{tenantID}/projects
+// List handles GET /api/v1/projects
 func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
-	tenant := tenantFromCtx(r)
 	page := pageParams(r)
-	projects, total, err := h.store.ListProjects(r.Context(), tenant.ID, page)
+	projects, total, err := h.store.ListProjects(r.Context(), "", page)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
@@ -34,9 +33,8 @@ func (h *ProjectHandler) List(w http.ResponseWriter, r *http.Request) {
 	writePaged(w, projects, total, page.Limit, page.Offset)
 }
 
-// Create handles POST /api/v1/tenants/{tenantID}/projects
+// Create handles POST /api/v1/projects
 func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
-	tenant := tenantFromCtx(r)
 	var body struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
@@ -50,7 +48,7 @@ func (h *ProjectHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	project, err := h.store.CreateProject(r.Context(), tenant.ID, body.Name, body.Description)
+	project, err := h.store.CreateProject(r.Context(), "", body.Name, body.Description)
 	if err != nil {
 		var conflict *repo.ErrConflict
 		if errors.As(err, &conflict) {

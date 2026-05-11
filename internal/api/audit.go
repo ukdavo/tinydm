@@ -17,7 +17,7 @@ func NewAuditHandler(store *audit.Store) *AuditHandler {
 	return &AuditHandler{store: store}
 }
 
-// List handles GET /api/v1/tenants/{tenantID}/audit
+// List handles GET /api/v1/audit
 //
 // Supported query parameters:
 //
@@ -29,8 +29,6 @@ func NewAuditHandler(store *audit.Store) *AuditHandler {
 //	limit      — page size (default 50, max 500)
 //	offset     — pagination offset (default 0)
 func (h *AuditHandler) List(w http.ResponseWriter, r *http.Request) {
-	tenant := tenantFromCtx(r)
-
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	// Clamp here so pagination metadata reflects the actual values used by the store.
@@ -42,7 +40,6 @@ func (h *AuditHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	f := audit.Filter{
-		TenantID:  tenant.ID,
 		Principal: r.URL.Query().Get("principal"),
 		Action:    r.URL.Query().Get("action"),
 		Resource:  r.URL.Query().Get("resource"),
