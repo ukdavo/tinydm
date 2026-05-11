@@ -177,6 +177,19 @@ func RegisterRoutes(r chi.Router, h *Handler) {
 			r.Post("/admin/tenants/{tenantID}/apikeys/{keyID}/rights", h.addAPIKeyRight)
 			r.Delete("/admin/tenants/{tenantID}/apikeys/{keyID}/rights", h.removeAPIKeyRight)
 
+			// Per-resource rights
+			r.Get("/admin/tenants/{tenantID}/projects/{projectID}/rights", h.projectRightsPanel)
+			r.Post("/admin/tenants/{tenantID}/projects/{projectID}/rights", h.addProjectRight)
+			r.Delete("/admin/tenants/{tenantID}/projects/{projectID}/rights", h.removeProjectRight)
+
+			r.Get("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/rights", h.bucketRightsPanel)
+			r.Post("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/rights", h.addBucketRight)
+			r.Delete("/admin/tenants/{tenantID}/projects/{projectID}/buckets/{bucketID}/rights", h.removeBucketRight)
+
+			r.Get("/admin/documents/{documentID}/rights", h.documentRightsPanel)
+			r.Post("/admin/documents/{documentID}/rights", h.addDocumentRight)
+			r.Delete("/admin/documents/{documentID}/rights", h.removeDocumentRight)
+
 			// Tenant permission mode
 			r.Post("/admin/tenants/{tenantID}/settings/permmode", h.setPermMode)
 
