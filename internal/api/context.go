@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"tinydm/internal/auth"
 	"tinydm/internal/repo"
 )
 
@@ -17,6 +18,8 @@ const (
 	bucketKey   ctxKey = "bucket"
 	documentKey ctxKey = "document"
 	versionKey  ctxKey = "version"
+	rightsKey   ctxKey = "rights"
+	permModeKey ctxKey = "permMode"
 )
 
 // ─── Resource context middleware ──────────────────────────────────────────────
@@ -24,12 +27,13 @@ const (
 // parent ownership, and stores the record in the request context.
 // A 404 is returned immediately if the resource does not exist.
 
-// TenantCtx loads the tenant identified by {tenantID} into the context.
-func TenantCtx(store *repo.Store) func(http.Handler) http.Handler {
+// TenantCtx loads the tenant identified by {tenantID} into the context,
+// and also stores its perm_mode for use by RightsCtx and CanMiddleware.
+func TenantCtx(repoStore *repo.Store, authStore *auth.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id := chi.URLParam(r, "tenantID")
-			tenant, err := store.GetTenant(r.Context(), id)
+			tenant, err := repoStore.GetTenant(r.Context(), id)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, "internal error")
 				return
@@ -38,7 +42,98 @@ func TenantCtx(store *repo.Store) func(http.Handler) http.Handler {
 				writeError(w, http.StatusNotFound, "tenant not found")
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(contextWith(r.Context(), tenantKey, tenant)))
+			mode, err := authStore.GetTenantPermMode(r.Context(), id)
+			if err != nil {
+				mode = auth.PermModeExplicit // fail-safe
+			}
+			ctx := contextWith(r.Context(), tenantKey, tenant)
+			ctx = contextWith(ctx, permModeKey, mode)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// RightsCtx loads the authenticated principal's rights into the context.
+// It must run after RequireAuth and TenantCtx.
+func RightsCtx(authStore *auth.Store) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, ok := auth.PrincipalFromContext(r.Context())
+			if !ok {
+				next.ServeHTTP(w, r)
+				return
+			}
+			// Admins bypass rights checks — no need to load rights.
+			if p.IsAdmin() {
+				next.ServeHTTP(w, r)
+				return
+			}
+			tenant := tenantFromCtx(r)
+			if tenant == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			var rights []auth.Right
+			var err error
+			if p.AuthMethod == auth.AuthMethodAPIKey {
+				rights, err = authStore.GetAPIKeyRights(r.Context(), tenant.ID, p.ID)
+			} else {
+				rights, err = authStore.GetUserRights(r.Context(), tenant.ID, p.ID)
+			}
+			if err != nil {
+				// Fail-safe: no rights loaded means all Can() checks deny.
+				rights = nil
+			}
+			ctx := contextWith(r.Context(), rightsKey, rights)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// CanMiddleware returns middleware that checks whether the authenticated
+// principal may perform action on the given resource. getResourceID and
+// getAncestors are called at request time to extract the resource ID and
+// ancestor chain from URL params and context.
+func CanMiddleware(
+	authStore *auth.Store,
+	action auth.Action,
+	resourceType auth.ResourceType,
+	getResourceID func(*http.Request) string,
+	getAncestors func(*http.Request) []auth.ResourceAncestor,
+) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, ok := auth.PrincipalFromContext(r.Context())
+			if !ok {
+				writeError(w, http.StatusUnauthorized, "authentication required")
+				return
+			}
+			// Admins bypass all permission checks.
+			if p.IsAdmin() {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			mode, _ := r.Context().Value(permModeKey).(auth.PermMode)
+			if mode == "" {
+				mode = auth.PermModeExplicit
+			}
+			rights, _ := r.Context().Value(rightsKey).([]auth.Right)
+
+			resourceID := "*"
+			if getResourceID != nil {
+				resourceID = getResourceID(r)
+			}
+			var ancestors []auth.ResourceAncestor
+			if getAncestors != nil {
+				ancestors = getAncestors(r)
+			}
+
+			if !auth.Can(p, rights, mode, action, resourceType, resourceID, ancestors...) {
+				writeError(w, http.StatusForbidden, "permission denied")
+				return
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }
@@ -135,6 +230,19 @@ func versionFromCtx(r *http.Request) *repo.DocumentVersion {
 
 func contextWith(ctx context.Context, key ctxKey, val any) context.Context {
 	return context.WithValue(ctx, key, val)
+}
+
+func rightsFromCtx(r *http.Request) []auth.Right {
+	v, _ := r.Context().Value(rightsKey).([]auth.Right)
+	return v
+}
+
+func permModeFromCtx(r *http.Request) auth.PermMode {
+	v, _ := r.Context().Value(permModeKey).(auth.PermMode)
+	if v == "" {
+		return auth.PermModeExplicit
+	}
+	return v
 }
 
 // VersionCtx loads the document version identified by {versionID} and verifies
