@@ -47,7 +47,7 @@ TINYDM_BOOTSTRAP_ADMIN_PASS=changeme \
 go run ./cmd/tinydm
 ```
 
-The server starts on `http://localhost:8080`. On first run the bootstrap tenant (`Default`) and admin user (`admin`) are created automatically.
+The server starts on `http://localhost:8080`. On first run the admin user (`admin`) is created automatically.
 
 ---
 
@@ -342,26 +342,20 @@ These variables are only used on the very first startup when the database has no
 
 | Variable | Default | Description |
 |---|---|---|
-| `TINYDM_BOOTSTRAP_TENANT_ID` | `default` | ID of the initial tenant |
-| `TINYDM_BOOTSTRAP_TENANT_NAME` | `Default` | Display name of the initial tenant |
-| `TINYDM_BOOTSTRAP_ADMIN_USER` | `superadmin` | Username of the initial superadmin |
+| `TINYDM_BOOTSTRAP_ADMIN_USER` | `admin` | Username of the initial admin |
 | `TINYDM_BOOTSTRAP_ADMIN_EMAIL` | _(empty)_ | Email of the initial admin |
 | `TINYDM_BOOTSTRAP_ADMIN_PASS` | _(empty)_ | Password of the initial admin. **Bootstrap is skipped if this is not set.** |
+| `TINYDM_PERM_MODE` | `open` | RBAC default: `open` (allow unless denied) or `explicit` (deny unless granted) |
 
 ---
 
 ## First-run bootstrap
 
-On the very first startup, if `TINYDM_BOOTSTRAP_ADMIN_PASS` is set and the database contains no users, TinyDM:
-
-1. Creates the bootstrap tenant (using `TINYDM_BOOTSTRAP_TENANT_ID` and `TINYDM_BOOTSTRAP_TENANT_NAME`).
-2. Creates a superadmin account with the supplied credentials.
-3. Creates a domain admin account for the bootstrap tenant (username: `admin@<tenant_id>`).
+On first startup with `TINYDM_BOOTSTRAP_ADMIN_PASS` set and no existing users, TinyDM creates an admin account with the supplied credentials.
 
 This is a one-time idempotent operation. To sign in via the admin UI, use:
 
-- **Tenant name:** whatever you set for `TINYDM_BOOTSTRAP_TENANT_NAME` (default: `Default`)
-- **Username:** `TINYDM_BOOTSTRAP_ADMIN_USER` (default: `superadmin`)
+- **Username:** `TINYDM_BOOTSTRAP_ADMIN_USER` (default: `admin`)
 - **Password:** `TINYDM_BOOTSTRAP_ADMIN_PASS`
 
 After the first login, change the admin password via the Users section of the admin UI or by creating a new admin account and revoking the original.

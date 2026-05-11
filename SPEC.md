@@ -12,17 +12,16 @@ TinyDM is a simple document management application similar in concept to Documen
 - Small footprint
 - Easy to deploy and run
 - Supports all main operating systems (macOS, Linux & Windows)
-- Supports multi-tenancy
+- Single-tenant; all users share one system namespace
 
 ## Repository Structure
 
 The logical repository structure is hierarchical:
 
 ```
-Tenant
-└── Project
-    └── Bucket
-        └── Document
+Project
+└── Bucket
+    └── Document
 ```
 
 ## Initial Features
@@ -53,8 +52,7 @@ Full REST API for all operations.
 - API Keys
 
 **User Types:**
-- Superadmin — unrestricted cross-tenant access; cannot be deactivated
-- Admin — unrestricted access within their tenant; bypasses rights checks
+- Admin — unrestricted access; bypasses rights checks
 - User — access governed by rights grants
 
 **User Rights:**
@@ -69,7 +67,7 @@ Simple web client for administrators.
 ### Authentication Methods
 - Basic authentication (username + password)
 - JWT Bearer token (issued via `POST /api/v1/auth/login`)
-- API key (opaque token, scoped to tenant)
+- API key (opaque token, scoped to user)
 
 ## Tech Stack
 

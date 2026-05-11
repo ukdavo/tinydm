@@ -6,7 +6,7 @@
 
 ## Findings
 
-### HIGH — Cross-tenant authorisation bypass (FIXED)
+### HIGH — Cross-tenant authorisation bypass (RESOLVED — no longer applicable)
 
 **Location:** `internal/auth/middleware.go` `RequireAdmin`, `internal/api/routes.go`
 
@@ -15,9 +15,10 @@ principal's tenant matched the `{tenantID}` URL parameter. An administrator of T
 access `/api/v1/tenants/tenant-B/users`, `/api/v1/tenants/tenant-B/projects`, and all
 sub-resources of Tenant B without restriction.
 
-**Fix:** Added `RequireSameTenant` middleware (`internal/api/security.go`) and applied it to all
-routes nested under `/tenants/{tenantID}`. The middleware compares `principal.TenantID` against the
-URL parameter and returns HTTP 403 on mismatch.
+**Resolution:** Multi-tenancy has been removed from TinyDM. Routes are no longer nested under
+`/tenants/{tenantID}`, `principal.TenantID` no longer exists, and the `RequireSameTenant`
+middleware (`internal/api/security.go`) was removed as part of the tenant removal — the concept it
+protected no longer exists. The vulnerability cannot be reproduced.
 
 ---
 
@@ -102,7 +103,7 @@ behind a TLS-terminating reverse proxy or with TLS configured directly.
 
 **Location:** `internal/api/handler.go` `decode()`
 
-**Description:** Non-multipart JSON request bodies (tenant create, login, property set, etc.) had no
+**Description:** Non-multipart JSON request bodies (login, property set, etc.) had no
 size limit. A client could send a multi-GB JSON body, exhausting server memory.
 
 **Fix:** `decode()` now wraps `r.Body` with `io.LimitReader(r.Body, maxJSONBytes)` (1 MiB) before
