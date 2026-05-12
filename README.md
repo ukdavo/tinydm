@@ -2,7 +2,7 @@
 
 A simple, self-hosted document management system. Small footprint, easy to deploy, no external dependencies.
 
-> **Status:** All phases complete. The full REST API, document versioning, tags, custom properties, automatic metadata extraction, an immutable audit log, an HTMX admin web UI, OpenAPI 3.1 documentation, and a performance benchmark suite are all working. SQLite is the default database; PostgreSQL is available as an alternative backend. See [DEPLOYMENT.md](./DEPLOYMENT.md) for production deployment instructions and [BENCHMARKS.md](./BENCHMARKS.md) for performance baselines.
+> **Status:** All phases complete. The full REST API, document versioning, tags, custom properties, automatic metadata extraction, an immutable audit log, an HTMX web UI, OpenAPI 3.1 documentation, and a performance benchmark suite are all working. SQLite is the default database; PostgreSQL is available as an alternative backend. See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) for production deployment instructions and [docs/BENCHMARKS.md](./docs/BENCHMARKS.md) for performance baselines.
 
 ---
 
@@ -17,7 +17,7 @@ A simple, self-hosted document management system. Small footprint, easy to deplo
 - **Automatic metadata extraction** — image dimensions (JPEG, PNG, GIF), PDF version string, Office container type (OOXML / OLE2) detected on upload
 - **Immutable audit log** — every mutating request recorded async; queryable by action (with `*` wildcard), principal, resource, and date range
 - **Pagination** — all REST list endpoints return a `{"data":[…], "pagination":{…}}` envelope; use `?limit=` and `?offset=` to page through large result sets; the web UI renders prev/next pager bars on every list page
-- **Admin web UI** — HTMX-powered interface at `/admin/` covering projects, buckets, documents, users, API keys, and audit log; all assets embedded in the binary
+- **Admin web UI** — HTMX-powered interface at `/app/` covering projects, buckets, documents, users, API keys, and audit log; all assets embedded in the binary
 - **Document & bucket management UI** — inline bucket rename, document update, name search, tag filter, tag management, custom properties panel, system metadata display, version history and one-click restore
 - **Content-addressed storage** — SHA-256 keyed files; identical content is stored once
 - **OpenAPI 3.1 documentation** — Swagger UI at `/api/docs`, raw spec at `/api/docs/openapi.yaml`; both embedded in the binary
@@ -61,7 +61,7 @@ go run ./cmd/tinydm
 
 The server starts on `http://localhost:8080`. On first run an admin user (`admin`) is created automatically.
 
-Open `http://localhost:8080/admin/` in a browser to reach the admin UI. Sign in with username `admin` and the password you set above.
+Open `http://localhost:8080/app/` in a browser to reach the admin UI. Sign in with username `admin` and the password you set above.
 
 ### Run with Docker
 
@@ -90,7 +90,7 @@ docker compose --profile postgres up
 
 ## Admin web UI
 
-Navigate to `http://localhost:8080/admin/` after starting the server.
+Navigate to `http://localhost:8080/app/` after starting the server.
 
 | Section | What you can do |
 |---|---|
@@ -164,7 +164,7 @@ This is a one-time operation — subsequent starts skip it silently.
 
 ## API
 
-All endpoints except `/health`, `POST /api/v1/auth/login`, and the `/admin/` web UI pages require API authentication.
+All endpoints except `/health`, `POST /api/v1/auth/login`, and the `/app/` web UI pages require API authentication.
 
 ### Authentication
 
@@ -398,13 +398,18 @@ tinydm/
 │   └── web/            HTMX admin UI — handler, templates, static assets
 │       ├── static/     Embedded CSS
 │       └── templates/  Embedded HTML templates (base layout + 8 pages)
+├── docs/
+│   ├── BACKLOG.md          Items to investigate or build — not yet planned
+│   ├── BENCHMARKS.md       Benchmark methodology, how to run, baseline results template
+│   ├── CLUSTER-SETUP.md    Multi-node cluster setup (PostgreSQL + shared object store)
+│   ├── DATABASE.md         Database schema and property key namespace reference
+│   ├── DEPLOYMENT.md       Production deployment guide (binary, Docker, Compose, nginx, backup)
+│   ├── PLAN.md             Living project plan with per-task status
+│   ├── SECURITY.md         Security model and hardening notes
+│   └── SPEC.md             Full project specification
 ├── Dockerfile
 ├── docker-compose.yml  SQLite (default) + postgres profile
-├── Makefile
-├── BENCHMARKS.md       Benchmark methodology, how to run, baseline results template
-├── DEPLOYMENT.md       Production deployment guide (binary, Docker, Compose, nginx, backup)
-├── PLAN.md             Living project plan with per-task status
-└── SPEC.md             Full project specification
+└── Makefile
 ```
 
 ### Generating DB code
@@ -420,7 +425,7 @@ make sqlc
 
 ## Roadmap
 
-See [PLAN.md](./PLAN.md) for the full task-level breakdown, [DEPLOYMENT.md](./DEPLOYMENT.md) for production deployment instructions, and [BENCHMARKS.md](./BENCHMARKS.md) for performance baseline results.
+See [docs/PLAN.md](./docs/PLAN.md) for the full task-level breakdown, [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) for production deployment instructions, and [docs/BENCHMARKS.md](./docs/BENCHMARKS.md) for performance baseline results.
 
 | Phase | Scope | Status |
 |---|---|---|
